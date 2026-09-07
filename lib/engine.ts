@@ -1,0 +1,790 @@
+"use client";
+
+/**
+ * The Director: owns the run.
+ *
+ *   type your wish ──► scene one is ALREADY filming underneath you
+ *          │                          │
+ *          ▼                          ▼
+ *   the wish becomes a shot     scene one plays
+ *          └──► films during that playback ──► plays ──► 二选一 ──► loop
+ *
+ * The whole design is one idea, inherited from LAST FRAME and narrowed to a
+ * single branch: THE WAIT IS ALWAYS SOMEONE ELSE'S TIME. The player typing
+ * pays for the opening shot. The opening shot playing pays for the wish
+ * shot. A ten-second clip on screen is ten seconds of generation the player
+ * never experiences as a spinner. The only unavoidable wait in the game is
+ * after a choice card is tapped, because until it is tapped there is nothing
+ * to film — and that is the one place a shutter card appears.
+ *
+ * State is one immutable snapshot published through subscribe(), so React is
+ * a single useSyncExternalStore call. Every async continuation is guarded by
+ * a run token, so a reset can never be clobbered by an in-flight shot.
+ */
+
+import { filmShot, loadPortrait, paintFrame } from "./fal";
+import { extractFrames } from "./frames";
+import { dress, imageKey, tellNext, writeIntentShot, writeTypedShot } from "./story";
+import {
+  OPENING_SHOT_SECONDS,
+  RESOLUTION,
+  SHOT_SECONDS,
+  firstFramePrompt,
+  openingShotPrompt,
+  type Character,
+} from "./character";
+import { DEFAULT_STYLE, type StyleKey } from "./styles";
+import type { Beat, Choice, Phase, Shot } from "./types";
+
+/** Only an explicit wish to remain in bed earns a second bedroom beat. */
+function isStayInBedWish(wish: string): boolean {
+  return /赖床|不想起(?:床)?|再睡|继续睡|被窝|床上|先不起|别起床|多躺/.test(wish);
+}
+
+export interface DirectorState {
+  phase: Phase;
+  beat: number;
+  /** The clip on screen, or the last one that was. */
+  currentShot: Shot | null;
+  /** Held over the video — it IS the video's last frame, so the handover
+   *  between clip and freeze is invisible by construction. */
+  freezeFrame: string | null;
+  /** 中文 narration of the shot that just played. */
+  narration: string | null;
+  /** His 中文 line for that beat, or null. */
+  line: string | null;
+  /** The cards, when there are cards. */
+  choices: Choice[];
+  /** Every shot so far, for the history strip. */
+  shots: Shot[];
+  /** What is generating right now, shown on the shutter card. */
+  workingLabel: string | null;
+  /** Transient 中文 notice (a refused wish, a soft failure). */
+  notice: string | null;
+  error: string | null;
+  /** True once his portrait is in hand — the identity anchor is live. */
+  anchored: boolean;
+  /** The look this run is being filmed in. */
+  style: StyleKey;
+  /** 无视频模式: beats are painted stills, not h3 clips. */
+  videoOff: boolean;
+  /** Who he is this run. Null until 选角 — the game will not start without him. */
+  him: Character | null;
+}
+
+const INITIAL: DirectorState = {
+  phase: "intake",
+  beat: 0,
+  currentShot: null,
+  freezeFrame: null,
+  narration: null,
+  line: null,
+  choices: [],
+  shots: [],
+  workingLabel: null,
+  notice: null,
+  error: null,
+  anchored: false,
+  style: DEFAULT_STYLE,
+  videoOff: false,
+  him: null,
+};
+
+/** A finished shot, filmed and frame-extracted, waiting for its turn. */
+interface Prepared {
+  shot: Shot;
+  lastFrame: string;
+  strip: string[];
+  /** 中文 or English, for the storyteller's "THE PLAYER JUST TRIED" line. */
+  attempted: string;
+}
+
+/**
+ * How long narration is held on the frozen frame before a queued shot is
+ * allowed to take the screen. Without it the wish shot — which is usually
+ * already in the can by then — cuts in before the player has read a word.
+ */
+const NARRATION_DWELL_MS = 2_600;
+
+/**
+ * How long a painted beat is held before it hands on, standing in for the ten
+ * seconds a clip would have played. Long enough to look at, short enough that
+ * a mode whose whole point is speed still feels fast — and it is also the
+ * window the storyteller's read has to land in, exactly as playback is.
+ */
+const STILL_DWELL_MS = 5_000;
+
+const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms));
+
+type Listener = () => void;
+
+export class Director {
+  private state: DirectorState = INITIAL;
+  private listeners = new Set<Listener>();
+  /** Bumped on reset; every async continuation checks it. */
+  private token = 0;
+
+  /** His portrait — ref2v "Image 2" on every shot. Null = i2v fallback. */
+  private portrait: string | null = null;
+  /** Full-res last frame of the newest landed shot; the next shot chains it. */
+  private lastFrame: string | null = null;
+  /** Running memory the storyteller rewrites each beat. */
+  private memory = "";
+  /** Latest scene ground truth, for the free-text writer. */
+  private scene = "";
+  /** Labels already offered, so nothing is reoffered. */
+  private offered: string[] = [];
+  /** Fixed per run, varied per beat inside filmShot. */
+  private seed = 0;
+  /** The chosen look. Baked into every prompt and every painted still. */
+  private style: StyleKey = DEFAULT_STYLE;
+  /** 无视频模式. See paintBeat(). */
+  private videoOff = false;
+  /** The 男主 this run is about. Null until the player makes one. */
+  private him: Character | null = null;
+  /** Timer that ends a still's dwell, so it can be cancelled on reset. */
+  private dwell: number | null = null;
+
+  /** A shot already filmed and waiting for the current clip to finish. */
+  private canned: Promise<Prepared | null> | null = null;
+  /** The beat the storyteller wrote while the clip was playing. */
+  private pendingBeat: Beat | null = null;
+  private clipEnded = false;
+  /** Set while the player is still typing and the opening is being prepared. */
+  private wishSubmitted = false;
+  /** begin() is idempotent: it starts a paid generation, so it fires once. */
+  private started = false;
+
+  // --- store plumbing ------------------------------------------------------
+
+  subscribe = (listener: Listener): (() => void) => {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  };
+
+  getSnapshot = (): DirectorState => this.state;
+
+  private set(patch: Partial<DirectorState>) {
+    this.state = { ...this.state, ...patch };
+    for (const listener of this.listeners) listener();
+  }
+
+  // --- the run -------------------------------------------------------------
+
+  /**
+   * Cast a different 男主, before the eyes open.
+   *
+   * Like the style and unlike the mode, this is baked into work already
+   * started — his portrait and the opening still both contain him — so
+   * changing it restarts the opening under a new token. Also like the style,
+   * it survives a reset: he is a choice about the game, not about the run.
+   */
+  setCharacter(him: Character) {
+    if (this.state.phase !== "intake" || this.wishSubmitted) return;
+    if (him.id === this.him?.id) return;
+    this.him = him;
+    this.set({ him });
+    if (!this.started) return;
+    const token = ++this.token;
+    this.canned = this.prepareOpening(token);
+  }
+
+  /**
+   * Called the moment the intake screen mounts, not when the player submits.
+   *
+   * This is the whole trick of the opening: his portrait, the painted first
+   * frame and the ten-second waking shot all generate while the player is
+   * still deciding what they want from today. By the time they press enter
+   * the film is usually already in the can.
+   */
+  begin(style: StyleKey = this.style) {
+    // No 男主, no opening. There is no default to fall back on and inventing
+    // one silently would be the exact behaviour this game just removed.
+    if (this.started || !this.him) return;
+    this.started = true;
+    this.style = style;
+    const token = ++this.token;
+    this.seed = Math.floor(Math.random() * 1_000_000);
+    this.set({ style });
+    this.canned = this.prepareOpening(token);
+  }
+
+  /**
+   * 无视频模式 on or off.
+   *
+   * Unlike the style, this is NOT baked into anything already generated — a
+   * painted still and a filmed clip both end as a frame, and a frame is all
+   * the next beat inherits. So the two modes chain into each other cleanly
+   * and this can be flipped at any point in a run without restarting it.
+   * Before the run starts it is free; mid-run it simply changes what the
+   * next beat costs.
+   */
+  setVideoMode(off: boolean) {
+    if (off === this.videoOff) return;
+    this.videoOff = off;
+    this.set({ videoOff: off });
+  }
+
+  /**
+   * Change the look before the eyes open.
+   *
+   * The style is baked into his portrait, the opening still and the opening
+   * shot, so it cannot be swapped in after the fact — switching restarts the
+   * opening from scratch under a new token, abandoning whatever was in
+   * flight. That is why nothing generates until the player first touches the
+   * page: a bare page load that bills a clip nobody chose the look for is
+   * money spent on something certain to be thrown away.
+   */
+  setStyle(style: StyleKey) {
+    if (this.state.phase !== "intake" || this.wishSubmitted) return;
+    if (style === this.style && this.started) return;
+    this.style = style;
+    this.set({ style });
+    if (!this.started) return;
+    // Restart: the in-flight opening is in the wrong look now.
+    const token = ++this.token;
+    this.canned = this.prepareOpening(token);
+  }
+
+  private async prepareOpening(token: number): Promise<Prepared | null> {
+    const him = this.him;
+    if (!him) return null;
+    try {
+      // 无视频模式 is a Gemini still story: it never calls fal/H3, but each
+      // beat has one painted frame. A text-only character stays valid here —
+      // do not ask /api/portrait to invent a portrait merely because this
+      // mode can show scene art. If they already chose art, reuse it as the
+      // identity reference instead.
+      if (this.videoOff) {
+        this.portrait = him.hasArt ? await loadPortrait(him.id, this.style) : null;
+        if (token !== this.token) return null;
+        this.set({ anchored: this.portrait !== null });
+        return await this.paintStill(token, {
+          prompt: firstFramePrompt(him, this.style),
+          action: null,
+          kind: "opening",
+          attempted: "waking up",
+          references: this.portrait ? [this.portrait] : [],
+        });
+      }
+
+      // The portrait is cached on disk after the first ever run, so this is
+      // normally a local file read, not a generation.
+      this.portrait = await loadPortrait(him.id, this.style);
+      if (token !== this.token) return null;
+      this.set({ anchored: this.portrait !== null });
+
+      // The opening is the one shot with no previous frame to inherit from,
+      // so it is painted rather than cold-started: a dedicated image model
+      // composes a far stronger establishing frame than t2v does, and holds
+      // the declared style far better. With his portrait in hand this is an
+      // EDIT from it, so the boy in the first frame is already the right boy.
+      let first: string | undefined;
+      try {
+        first = await paintFrame({
+          prompt: firstFramePrompt(him, this.style),
+          seed: this.seed,
+          width: 1280,
+          height: 720,
+          references: this.portrait ? [this.portrait] : [],
+        });
+      } catch (cause) {
+        // A failed paint falls back to a cold t2v opening rather than
+        // ending the run before it starts.
+        console.error("[prepareOpening] first frame paint failed:", cause);
+      }
+      if (token !== this.token) return null;
+
+      // Without a first frame the opening is a cold start — fine for video,
+      // and in 无视频模式 it simply means the first beat has no picture.
+      return await this.generate(token, {
+        prompt: dress(openingShotPrompt(him), this.style),
+        action: null,
+        kind: "opening",
+        attempted: "waking up",
+        fromFrame: first,
+      });
+    } catch (cause) {
+      console.error("[prepareOpening] failed:", cause);
+      return null;
+    }
+  }
+
+  /**
+   * The player's wish. Moderation and the shot writer run in parallel; both
+   * are hidden behind the opening clip, which starts playing immediately.
+   */
+  async submitWish(text: string) {
+    if (this.state.phase !== "intake" || this.wishSubmitted) return;
+    const him = this.him;
+    const wish = text.trim().slice(0, 280);
+    if (!wish || !him) return;
+    const token = this.token;
+    this.wishSubmitted = true;
+    this.set({ phase: "filming", workingLabel: "……", notice: null });
+
+    const [moderation, written] = await Promise.all([
+      fetch("/api/moderate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: wish }),
+      })
+        .then((res) => (res.ok ? res.json() : { allowed: false }))
+        .catch(() => ({ allowed: false })),
+      writeIntentShot(wish, this.style, him, !isStayInBedWish(wish)),
+    ]);
+    if (token !== this.token) return;
+
+    const wishCheck = moderation as { allowed?: boolean; degraded?: boolean };
+    if (!wishCheck.allowed) {
+      // Straight back to the intake screen. The opening shot keeps
+      // generating in the background — nothing is thrown away.
+      //
+      // `degraded` means the check could not RUN, not that it said no. Those
+      // are completely different things to the player, and telling someone
+      // their perfectly ordinary sentence is unspeakable because a server
+      // returned 503 is the worst version of this screen.
+      this.wishSubmitted = false;
+      this.set({
+        phase: "intake",
+        workingLabel: null,
+        notice: wishCheck.degraded
+          ? "审核没连上，不是你写的问题 —— 再按一次试试。"
+          : "这个愿望说不出口。换一个吧。",
+      });
+      return;
+    }
+
+    // The opening plays first, and this films underneath it.
+    const opening = this.canned;
+    this.canned = null;
+    const prepared = await (opening ?? Promise.resolve(null));
+    if (token !== this.token) return;
+    if (!prepared) {
+      this.set({ phase: "error", error: "开场没有拍成。刷新页面再试一次。" });
+      return;
+    }
+
+    this.land(token, prepared);
+
+    // The generation window: the wish shot films while the opening plays.
+    const mustLeaveOpening = !isStayInBedWish(wish);
+    const wishShot = written ?? {
+      // The writer failing is not a reason to drop the player's wish — a
+      // literal reading still films, it is just less well composed.
+      label: wish,
+      prompt: dress(
+        mustLeaveOpening
+          ? `Cut directly to the central scene the viewer asked for: ${wish}. ` +
+            `The young man — ${him.descriptor} — is already there with her. ` +
+            `One clear, tender physical action; do not show the bedroom or getting ready.`
+          : `The young man — ${him.descriptor} — responds to what the viewer wants of ` +
+            `this morning: ${wish}. One clear, tender physical action, unhurried.`,
+        this.style
+      ),
+      cut: mustLeaveOpening,
+    };
+    this.canned = this.generate(token, {
+      prompt: wishShot.prompt,
+      action: wishShot.label,
+      kind: "intent",
+      attempted: wishShot.label,
+      // The wish may cut straight to wherever it goes — the bakery, the sea —
+      // rather than answering from the bed. See intentSystem in lib/story.ts.
+      fromFrame: wishShot.cut ? undefined : prepared.lastFrame,
+    });
+  }
+
+  /** Take one of the cards. Nothing is pre-filmed, so this films now. */
+  /**
+   * Can the next shot be made? Video chains off the previous last frame and
+   * is meaningless without one. 无视频模式 also chains its Gemini stills from
+   * their previous image, so it needs one after the opening too.
+   */
+  private canFilm(): boolean {
+    return Boolean(this.lastFrame);
+  }
+
+  choose(index: number) {
+    if (this.state.phase !== "choosing") return;
+    const choice = this.state.choices[index];
+    if (!choice || !this.canFilm()) return;
+    const token = this.token;
+    this.set({ phase: "filming", workingLabel: choice.label, choices: [], notice: null });
+    void this.filmAndLand(token, {
+      prompt: choice.prompt,
+      action: choice.label,
+      kind: "choice",
+      attempted: choice.label,
+      // A CUT deliberately drops the frame. Handing the old scene to a shot
+      // that is supposed to be somewhere else makes h3 grow the new place out
+      // of the old one — the bakery with the bedroom still in it. Without a
+      // frame it films from his portrait alone: new place, same person.
+      // Also null in a text-only run, where there is no frame at all.
+      fromFrame: choice.cut ? undefined : (this.lastFrame ?? undefined),
+    });
+  }
+
+  /** Type something of your own instead of taking a card. */
+  async submitTyped(raw: string) {
+    if (this.state.phase !== "choosing") return;
+    const him = this.him;
+    const text = raw.trim().slice(0, 280);
+    if (!text || !him || !this.canFilm()) return;
+    const token = this.token;
+    const frame = this.lastFrame ?? "";
+    this.set({ phase: "filming", workingLabel: text, choices: [], notice: null });
+
+    const [moderation, written] = await Promise.all([
+      fetch("/api/moderate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+      })
+        .then((res) => (res.ok ? res.json() : { allowed: false }))
+        .catch(() => ({ allowed: false })),
+      writeTypedShot({
+        text,
+        memory: this.memory,
+        scene: this.scene,
+        style: this.style,
+        him,
+      }),
+    ]);
+    if (token !== this.token) return;
+
+    const typedCheck = moderation as { allowed?: boolean; degraded?: boolean };
+    if (!typedCheck.allowed) {
+      // Back to the cards the beat already wrote — nothing is regenerated.
+      this.set({
+        phase: "choosing",
+        workingLabel: null,
+        choices: this.pendingChoices,
+        notice: typedCheck.degraded
+          ? "审核没连上，不是你写的问题 —— 再试一次。"
+          : "这个说不出口。换一个吧。",
+      });
+      return;
+    }
+
+    const shot = written ?? {
+      label: text,
+      prompt: dress(
+        `The young man — ${him.descriptor} — responds as the viewer does this: ${text}. ` +
+          `One clear physical action, unhurried.`,
+        this.style
+      ),
+    };
+    void this.filmAndLand(token, {
+      prompt: shot.prompt,
+      action: shot.label,
+      kind: "typed",
+      attempted: shot.label,
+      fromFrame: shot.cut ? undefined : frame || undefined,
+    });
+  }
+
+  reset() {
+    this.token++;
+    this.portrait = null;
+    this.lastFrame = null;
+    this.memory = "";
+    this.scene = "";
+    this.offered = [];
+    this.canned = null;
+    this.pendingBeat = null;
+    this.pendingChoices = [];
+    this.clipEnded = false;
+    this.wishSubmitted = false;
+    this.started = false;
+    if (this.dwell !== null) window.clearTimeout(this.dwell);
+    this.dwell = null;
+    // The style survives a reset. It is a preference about how the player
+    // wants to be shown this game, not a fact about the run that just ended.
+    // The mode survives a reset for the same reason the style does: both are
+    // preferences about how the player wants to be shown the game.
+    this.state = {
+      ...INITIAL,
+      style: this.style,
+      videoOff: this.videoOff,
+      him: this.him,
+    };
+    for (const listener of this.listeners) listener();
+  }
+
+  // --- filming -------------------------------------------------------------
+
+  /** The cards from the current beat, kept so a refusal can restore them. */
+  private pendingChoices: Choice[] = [];
+
+  /**
+   * Film one shot and pull its frames. Returns null rather than throwing:
+   * every caller has a different idea of what a failed shot means, and the
+   * one thing none of them wants is an unhandled rejection mid-run.
+   */
+  private async generate(
+    token: number,
+    args: {
+      prompt: string;
+      action: string | null;
+      kind: Shot["kind"];
+      attempted: string;
+      fromFrame?: string;
+    }
+  ): Promise<Prepared | null> {
+    try {
+      const beat = this.state.beat + 1;
+      if (this.videoOff) return this.paintStill(token, { ...args, beat });
+      const clip = await filmShot({
+        prompt: `${imageKey({
+          frame: Boolean(args.fromFrame),
+          portrait: Boolean(this.portrait),
+        })}${args.prompt}`,
+        seed: this.seed,
+        beat,
+        duration: args.kind === "opening" ? OPENING_SHOT_SECONDS : SHOT_SECONDS,
+        resolution: RESOLUTION,
+        fromFrame: args.fromFrame,
+        portrait: this.portrait ?? undefined,
+      });
+      if (token !== this.token) return null;
+
+      const frames = await extractFrames(clip.videoUrl);
+      if (token !== this.token) return null;
+
+      return {
+        shot: {
+          beat,
+          action: args.action,
+          kind: args.kind,
+          prompt: args.prompt,
+          still: false,
+          videoUrl: clip.videoUrl,
+          rawUrl: clip.rawUrl,
+          thumb: frames.thumb,
+        },
+        lastFrame: frames.lastFrame,
+        strip: frames.strip,
+        attempted: args.attempted,
+      };
+    } catch (cause) {
+      console.error("[generate] shot failed:", cause);
+      return null;
+    }
+  }
+
+  /**
+   * 无视频模式: one Gemini/Nano Banana still per beat, never a fal/H3 call.
+   * The preceding still is Image 1, and an existing portrait is Image 2, so
+   * the painter inherits both the room and him just as ref2v would. A cut
+   * intentionally omits the previous frame but keeps his portrait.
+   */
+  private async paintStill(
+    token: number,
+    args: {
+      beat?: number;
+      action: string | null;
+      kind: Shot["kind"];
+      attempted: string;
+      prompt: string;
+      fromFrame?: string;
+      /** Used only for the opening; later frames derive references themselves. */
+      references?: string[];
+    }
+  ): Promise<Prepared | null> {
+    const beat = args.beat ?? this.state.beat + 1;
+    const references = args.references ?? [
+      ...(args.fromFrame ? [args.fromFrame] : []),
+      ...(this.portrait ? [this.portrait] : []),
+    ];
+    const referenceLead = this.portrait
+      ? imageKey({ frame: Boolean(args.fromFrame), portrait: true })
+      : args.fromFrame
+        ? "Image 1 is the previous scene: continue its room, light, and first-person camera. "
+        : "";
+
+    try {
+      const image = await paintFrame({
+        prompt: `${referenceLead}${args.prompt}`,
+        seed: this.seed + beat,
+        width: 1280,
+        height: 720,
+        references,
+      });
+      if (token !== this.token) return null;
+      return {
+        shot: {
+          beat,
+          action: args.action,
+          kind: args.kind,
+          prompt: args.prompt,
+          still: true,
+          videoUrl: "",
+          rawUrl: "",
+          thumb: image,
+        },
+        lastFrame: image,
+        strip: [image],
+        attempted: args.attempted,
+      };
+    } catch (cause) {
+      console.error("[paintStill] image failed:", cause);
+      return null;
+    }
+  }
+
+  /** Generate and put straight on screen — the path a tapped card takes. */
+  private async filmAndLand(
+    token: number,
+    args: {
+      prompt: string;
+      action: string | null;
+      kind: Shot["kind"];
+      attempted: string;
+      fromFrame?: string;
+    }
+  ) {
+    const prepared = await this.generate(token, args);
+    if (token !== this.token) return;
+    if (!prepared) {
+      // A mid-run failure falls back to the cards this beat already wrote,
+      // rather than ending the morning. The frozen frame is still the truth.
+      if (this.pendingChoices.length > 0) {
+        this.set({
+          phase: "choosing",
+          workingLabel: null,
+          choices: this.pendingChoices,
+          notice: "这一幕没有拍成。再选一次。",
+        });
+      } else {
+        this.set({ phase: "error", error: "这一幕没有拍成，而且没有可以退回的选择。" });
+      }
+      return;
+    }
+    this.land(token, prepared);
+  }
+
+  /**
+   * Put a finished shot on screen and set the storyteller reading it. The
+   * read costs zero wall-clock: it runs while the clip plays.
+   */
+  private land(token: number, prepared: Prepared) {
+    this.lastFrame = prepared.lastFrame;
+    this.pendingBeat = null;
+    this.clipEnded = false;
+
+    this.set({
+      phase: "playing",
+      beat: prepared.shot.beat,
+      currentShot: prepared.shot,
+      shots: [...this.state.shots, prepared.shot],
+      freezeFrame: prepared.lastFrame,
+      narration: null,
+      line: null,
+      choices: [],
+      workingLabel: null,
+      notice: null,
+    });
+
+    // A clip announces its own end; a still does not. In 无视频模式 the beat
+    // is held for a fixed dwell and then handed on, which is also what makes
+    // the mode watchable rather than a slideshow that waits for a click.
+    // Cleared on reset and superseded by the next land().
+    if (this.dwell !== null) window.clearTimeout(this.dwell);
+    this.dwell = null;
+    if (prepared.shot.still) {
+      this.dwell = window.setTimeout(() => {
+        if (token !== this.token || this.state.beat !== prepared.shot.beat) return;
+        this.onClipEnded();
+      }, STILL_DWELL_MS);
+    }
+
+    void this.read(token, prepared);
+  }
+
+  private async read(token: number, prepared: Prepared) {
+    const him = this.him;
+    if (!him) return;
+    const beat = await tellNext({
+      frames: prepared.strip,
+      memory: this.memory,
+      attempted: prepared.attempted,
+      previousLabels: this.offered,
+      beat: prepared.shot.beat,
+      style: this.style,
+      him,
+    });
+    if (token !== this.token || this.state.beat !== prepared.shot.beat) return;
+    if (!beat) {
+      // Three attempts have already been made inside tellNext. There is no
+      // canned beat behind this on purpose: generic filler dropped into a
+      // written story is worse than an honest stop, and it compounds — the
+      // filler films a generic shot and the next read is made on that.
+      this.set({ phase: "error", error: "讲述者读不懂这一幕。今天的故事到此为止。" });
+      return;
+    }
+
+    this.memory = beat.memory || this.memory;
+    this.scene = beat.scene || this.scene;
+    this.pendingBeat = beat;
+    if (this.clipEnded) void this.applyBeat(token, beat);
+  }
+
+  /** Called by the stage when the clip on screen finishes. */
+  onClipEnded() {
+    if (this.state.phase !== "playing") return;
+    this.clipEnded = true;
+    if (this.pendingBeat) void this.applyBeat(this.token, this.pendingBeat);
+    else this.set({ phase: "writing" }); // freeze holds until the read lands
+  }
+
+  private async applyBeat(token: number, beat: Beat) {
+    this.pendingBeat = null;
+
+    // A shot already in the can — on the opening beat, the player's wish.
+    // Narration is shown first and held long enough to read, because the
+    // canned clip is usually ready before the player has looked at it.
+    if (this.canned) {
+      const queued = this.canned;
+      this.canned = null;
+      this.set({
+        phase: "filming",
+        narration: beat.narration,
+        line: beat.line,
+        choices: [],
+        workingLabel: null,
+      });
+      const [prepared] = await Promise.all([queued, sleep(NARRATION_DWELL_MS)]);
+      if (token !== this.token) return;
+      if (!prepared) {
+        // The queued shot died, so the cards this beat wrote become the
+        // beat after all — they were only ever the unused alternative.
+        this.offer(beat, { narration: false });
+        this.set({ notice: "那一幕没有拍成。从这里继续吧。" });
+        return;
+      }
+      this.land(token, prepared);
+      return;
+    }
+
+    this.offer(beat, { narration: true });
+  }
+
+  /**
+   * Put a beat's cards on screen. Only cards that are actually OFFERED go
+   * into `offered` and `pendingChoices` — a beat whose choices were skipped
+   * (the opening, where the player's wish films instead) must not narrow the
+   * storyteller's space later, and must not be the fallback for a failure in
+   * a scene it was never written for.
+   */
+  private offer(beat: Beat, opts: { narration: boolean }) {
+    this.pendingChoices = beat.choices;
+    this.offered = [...this.offered.slice(-6), ...beat.choices.map((c) => c.label)];
+    this.set({
+      phase: "choosing",
+      choices: beat.choices,
+      workingLabel: null,
+      ...(opts.narration ? { narration: beat.narration, line: beat.line } : {}),
+    });
+  }
+}

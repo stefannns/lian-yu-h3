@@ -1,0 +1,99 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "醒来的时候，他在 · 一拍是怎么做出来的",
+    "locale": "zh-CN",
+    "quality_profile": "showcase",
+    "viewBox": [1120, 700],
+    "views": [
+      {
+        "id": "beat",
+        "label": "一拍的路径",
+        "focus": ["player", "moderate", "story", "dress", "h3", "stage"],
+        "note": "玩家的一句中文，怎么变成屏幕上的十秒。"
+      },
+      {
+        "id": "identity",
+        "label": "他为什么一直是他",
+        "focus": ["cast", "imagegen", "portrait", "h3"],
+        "note": "立绘作为 Image 2 参与每一个镜头；三种画风都从同一张原图编辑出来。"
+      },
+      {
+        "id": "loop",
+        "label": "画面即事实",
+        "focus": ["h3", "stage", "frames", "story"],
+        "note": "讲述者读的是刚播完那十秒抽出的三帧，不是提示词。"
+      }
+    ]
+  },
+  "components": [
+    { "id": "gemini", "type": "cloud", "label": "Gemini", "sublabel": "全部文本", "pos": [402, 40], "size": [138, 68] },
+
+    { "id": "player", "type": "external", "label": "玩家", "sublabel": "愿望 / 二选一", "pos": [38, 240], "size": [138, 68] },
+    { "id": "moderate", "type": "security", "label": "审核", "sublabel": "ALLOW / BLOCK", "pos": [220, 240], "size": [138, 68] },
+    { "id": "story", "type": "backend", "label": "讲述者", "sublabel": "lib/story.ts", "pos": [402, 240], "size": [138, 68] },
+    { "id": "dress", "type": "backend", "label": "提示词组装", "sublabel": "dress() · 上限 1900", "pos": [584, 240], "size": [138, 68] },
+    { "id": "h3", "type": "cloud", "label": "h3-max", "sublabel": "fal · ref2v", "pos": [766, 240], "size": [138, 68] },
+    { "id": "stage", "type": "frontend", "label": "剧场", "sublabel": "16:9 · 第一人称", "pos": [948, 240], "size": [138, 68] },
+
+    { "id": "cast", "type": "backend", "label": "选角", "sublabel": "写一个 / 传一张", "pos": [402, 440], "size": [138, 68] },
+    { "id": "imagegen", "type": "cloud", "label": "nano banana", "sublabel": "lib/imagegen.ts", "pos": [584, 440], "size": [138, 68] },
+    { "id": "portrait", "type": "database", "label": "立绘缓存", "sublabel": "每画风一张", "pos": [766, 440], "size": [138, 68] },
+    { "id": "frames", "type": "backend", "label": "抽帧", "sublabel": "首 / 中 / 尾", "pos": [948, 440], "size": [138, 68] }
+  ],
+  "connections": [
+    { "id": "player-moderate", "from": "player", "to": "moderate", "label": "中文", "variant": "emphasis", "labelDy": -46 },
+    { "id": "moderate-story", "from": "moderate", "to": "story", "label": "放行", "labelDy": -46 },
+    { "id": "story-dress", "from": "story", "to": "dress", "label": "英文动作", "labelDy": -46 },
+    { "id": "dress-h3", "from": "dress", "to": "h3", "label": "提示词", "variant": "emphasis", "labelDy": -46 },
+    { "id": "h3-stage", "from": "h3", "to": "stage", "label": "十秒", "variant": "emphasis", "labelDy": -46 },
+
+    { "id": "gemini-story", "from": "gemini", "to": "story", "label": "写作 / 判定", "fromSide": "bottom", "toSide": "top", "labelAt": [530, 176] },
+
+    { "id": "stage-frames", "from": "stage", "to": "frames", "label": "播完", "fromSide": "bottom", "toSide": "top", "labelAt": [1046, 376] },
+    {
+      "id": "frames-story",
+      "from": "frames",
+      "to": "story",
+      "label": "三帧 · 画面即事实",
+      "variant": "dashed",
+      "fromSide": "bottom",
+      "toSide": "left",
+      "via": [[1017, 600], [380, 600], [380, 274]],
+      "labelAt": [700, 590]
+    },
+
+    { "id": "cast-imagegen", "from": "cast", "to": "imagegen", "label": "外貌 + 原图", "labelDy": -46 },
+    { "id": "imagegen-portrait", "from": "imagegen", "to": "portrait", "label": "按画风重画", "labelDy": -46 },
+    { "id": "portrait-h3", "from": "portrait", "to": "h3", "label": "立绘 = Image 2", "variant": "emphasis", "fromSide": "top", "toSide": "bottom", "labelDx": 62 }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "fal 只做视频",
+      "items": [
+        "h3-max 是这个 key 上唯一的调用",
+        "静帧走 nano banana，文本走 Gemini"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "他为什么一直是他",
+      "items": [
+        "立绘每个镜头都作为 Image 2 送进去",
+        "同一句英文外貌描述进每一条提示词",
+        "三种画风从同一张原图编辑而来"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "接上一帧，还是切",
+      "items": [
+        "续拍：上一帧 = Image 1，房间跟着走",
+        "切场景：故意不传帧，只留立绘",
+        "否则面包店会从卧室里长出来"
+      ]
+    }
+  ]
+}

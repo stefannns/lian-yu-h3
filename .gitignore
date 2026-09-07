@@ -1,0 +1,9 @@
+node_modules
+.next
+.env.local
+tsconfig.tsbuildinfo
+.cache
+.next-build
+
+# archify scratch
+docs/.archify-delivery-*

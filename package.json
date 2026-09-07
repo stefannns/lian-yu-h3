@@ -1,0 +1,29 @@
+{
+  "name": "otome-h3",
+  "version": "0.1.0",
+  "private": true,
+  "description": "乙女游戏 — 第一人称，每一幕由 h3 现场生成。",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit",
+    "check:image": "node scripts/check-image.mjs",
+    "script": "node scripts/script-run.mjs",
+    "build:check": "node scripts/build-check.mjs"
+  },
+  "dependencies": {
+    "@fal-ai/client": "^1.5.0",
+    "@fal-ai/server-proxy": "^1.1.1",
+    "google-auth-library": "^11.0.2",
+    "next": "^15.5.4",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "typescript": "^5.7.3"
+  }
+}

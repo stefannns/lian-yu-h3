@@ -1,0 +1,221 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import type { DirectorState } from "@/lib/engine";
+
+/**
+ * The theater: the shot on screen, or a slow push-in on its frozen last
+ * frame while the player reads.
+ *
+ * 横屏. Every clip h3 returns is 16:9, so the film is given a real 16:9 box
+ * and letterboxed inside whatever shape the window happens to be, rather
+ * than being cover-cropped to fill it. Cropping a widescreen shot to a tall
+ * window throws away the half of the frame he is not currently in — and in a
+ * first-person game the composition IS the state, so losing the edges loses
+ * the scene. Every overlay lives INSIDE that box, so the text sits on the
+ * picture rather than on the bars.
+ *
+ * Nothing here cuts. Every layer crossfades, and the freeze sits permanently
+ * above the video — because the freeze IS the video's last frame, fading it
+ * up as the clip ends is invisible by construction. Mounting and unmounting
+ * the two instead puts a hard edge at exactly the moment the eye is most
+ * likely to catch one.
+ */
+const FADE_MS = 420;
+
+/**
+ * Keeps children mounted through their own fade-out, so a layer leaves as
+ * gracefully as it arrives. Timer-driven rather than rAF on purpose: rAF does
+ * not fire at all in some embedded preview browsers, and a transition that
+ * never starts would leave the layer stuck invisible.
+ */
+function Fade({ show, children }: { show: boolean; children: React.ReactNode }) {
+  const [mounted, setMounted] = useState(show);
+  const [visible, setVisible] = useState(show);
+
+  useEffect(() => {
+    if (show) {
+      setMounted(true);
+      // One tick after mounting, so there is a zero-opacity frame to
+      // transition FROM; setting both at once jumps straight to solid.
+      const id = window.setTimeout(() => setVisible(true), 20);
+      return () => window.clearTimeout(id);
+    }
+    setVisible(false);
+    const id = window.setTimeout(() => setMounted(false), FADE_MS);
+    return () => window.clearTimeout(id);
+  }, [show]);
+
+  if (!mounted) return null;
+  return <div className={`fade-layer${visible ? " in" : ""}`}>{children}</div>;
+}
+
+function Script({
+  name,
+  narration,
+  line,
+}: {
+  name: string;
+  narration: string | null;
+  line: string | null;
+}) {
+  if (!narration && !line) return null;
+  return (
+    <div className="script">
+      <div className="script-inner">
+        {line && <p className="speaker">{name}</p>}
+        {line && <p className="line">「{line}」</p>}
+        {narration && <p className="narration">{narration}</p>}
+      </div>
+    </div>
+  );
+}
+
+function Choices({
+  state,
+  onChoose,
+  onTyped,
+}: {
+  state: DirectorState;
+  onChoose: (index: number) => void;
+  onTyped: (text: string) => void;
+}) {
+  const [text, setText] = useState("");
+  const freeOnly = state.choices.length === 0;
+
+  return (
+    <div className="choices">
+      <Script name={state.him?.name ?? ""} narration={state.narration} line={state.line} />
+      {!freeOnly && (
+        <div className="choice-list">
+          {state.choices.map((choice, index) => (
+            <button key={choice.label} className="card" onClick={() => onChoose(index)}>
+              {choice.label}
+            </button>
+          ))}
+        </div>
+      )}
+      {freeOnly && <p className="free-prompt">这一刻，由你来回答。</p>}
+      <div className={`typed${freeOnly ? " free-only" : ""}`}>
+        <input
+          value={text}
+          maxLength={280}
+          placeholder={freeOnly ? "想对他说什么，或者想怎么做？" : "或者，自己说点什么、做点什么……"}
+          onChange={(event) => setText(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && text.trim()) {
+              onTyped(text);
+              setText("");
+            }
+          }}
+        />
+        <button
+          disabled={!text.trim()}
+          onClick={() => {
+            onTyped(text);
+            setText("");
+          }}
+        >
+          就 这 样
+        </button>
+      </div>
+      {state.notice && (
+        <p className="notice" style={{ textAlign: "center", color: "#e6b7c2" }}>
+          {state.notice}
+        </p>
+      )}
+    </div>
+  );
+}
+
+export function Stage({
+  state,
+  onClipEnded,
+  onChoose,
+  onTyped,
+}: {
+  state: DirectorState;
+  onClipEnded: () => void;
+  onChoose: (index: number) => void;
+  onTyped: (text: string) => void;
+}) {
+  // A painted beat has no <video> at all, so the freeze layer — which is
+  // already mounted above the video and already does a slow push-in — simply
+  // stays up and becomes the presentation. 无视频模式 needs no second code
+  // path on screen; it needs one fewer.
+  const showVideo =
+    state.phase === "playing" &&
+    state.currentShot !== null &&
+    !state.currentShot.still;
+  const held = state.phase === "choosing" || state.phase === "writing";
+
+  return (
+    <div className="theater">
+      {/* Portrait phones get one instruction and nothing else. The film is
+          16:9 and the text sits on top of it; at portrait widths that box is
+          a stripe with unreadable type in it, and no amount of reflow fixes
+          a shot composed for a shape the screen does not have. */}
+      <div className="rotate">
+        <div className="rotate-inner">
+          <div className="rotate-icon" aria-hidden>
+            ▭
+          </div>
+          <p>请横屏观看</p>
+        </div>
+      </div>
+
+      <div className="film">
+      {state.currentShot && !state.currentShot.still && (
+        <video
+          key={state.currentShot.videoUrl}
+          src={state.currentShot.videoUrl}
+          autoPlay
+          playsInline
+          onEnded={onClipEnded}
+        />
+      )}
+      {state.freezeFrame && (
+        <img
+          className={`freeze${showVideo ? "" : " shown"}${held ? " dimmed" : ""}`}
+          src={state.freezeFrame}
+          alt=""
+        />
+      )}
+      <div className="vignette" />
+
+      {/* Narration during the queued-shot hold, where there are no cards yet
+          but there is something to read. */}
+      <Fade show={state.phase === "filming" && state.narration !== null}>
+        <Script name={state.him?.name ?? ""} narration={state.narration} line={state.line} />
+      </Fade>
+
+      <Fade show={state.phase === "choosing"}>
+        <Choices state={state} onChoose={onChoose} onTyped={onTyped} />
+      </Fade>
+
+      {/* The shutter card only appears when there is genuinely nothing else
+          to look at: a tapped card, with no narration left holding the frame. */}
+      <Fade show={state.phase === "filming" && state.narration === null}>
+        <div className="shutter">
+          <div className="shutter-card">
+            <p className="shutter-label">{state.workingLabel ?? "……"}</p>
+            <div className="breath">
+              <i />
+            </div>
+          </div>
+        </div>
+      </Fade>
+
+      <Fade show={state.phase === "writing"}>
+        <div className="shutter">
+          <div className="shutter-card">
+            <div className="breath">
+              <i />
+            </div>
+          </div>
+        </div>
+      </Fade>
+      </div>
+    </div>
+  );
+}
