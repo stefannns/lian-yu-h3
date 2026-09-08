@@ -316,4 +316,3 @@ for (const route of ["image", "cast"]) {
     assert.doesNotMatch(JSON.stringify(response.body), /simulated provider failure/);
   });
 }
-
