@@ -48,8 +48,8 @@ const choices = [
 ];
 async function settle() { for (let i = 0; i < 40; i++) await Promise.resolve(); }
 
-function directorHarness({ failOn = [], freeOnly = true, loadPortrait, paintOverride } = {}) {
-  const calls = { paints: [], videos: 0, intent: 0, typed: 0 };
+function directorHarness({ failOn = [], freeOnly = true, loadPortrait, paintOverride, tellOverride } = {}) {
+  const calls = { paints: [], videos: 0, intent: 0, typed: 0, reads: [], typedInputs: [] };
   const failures = new Set(failOn);
   const load = loader({
     "./fal": {
@@ -67,11 +67,19 @@ function directorHarness({ failOn = [], freeOnly = true, loadPortrait, paintOver
       dress: (action) => action,
       imageKey: ({ frame, portrait }) => frame ? "scene + portrait: " : portrait ? "portrait: " : "",
       writeIntentShot: async () => { calls.intent++; return { label: "去海边", prompt: "seaside action", cut: true }; },
-      writeTypedShot: async () => { calls.typed++; return { label: "回应他", prompt: "typed action", cut: false }; },
-      tellNext: async () => ({
-        scene: "current scene", narration: "他看着你。", line: null,
-        memory: "completed scene", moved: false, freeOnly, choices: freeOnly ? [] : choices,
-      }),
+      writeTypedShot: async (args) => {
+        calls.typed++;
+        calls.typedInputs.push(args);
+        return { label: "回应他", prompt: "typed action", cut: false };
+      },
+      tellNext: async (args) => {
+        calls.reads.push(args);
+        if (tellOverride) return tellOverride(args, calls.reads.length);
+        return {
+          scene: "current scene", narration: "他看着你。", line: null,
+          memory: "completed scene", moved: false, freeOnly, choices: freeOnly ? [] : choices,
+        };
+      },
     },
   }, {
     window: { setTimeout: () => 1, clearTimeout() {} },
@@ -119,10 +127,10 @@ test("free-only failure preserves the current frame and retries the same action 
   await settle();
   assert.equal(h.calls.paints.length, 4);
   assert.equal(h.calls.typed, 1);
-  assert.equal(h.director.getSnapshot().phase, "playing");
+  assert.equal(h.director.getSnapshot().phase, "choosing");
   assert.equal(h.director.getSnapshot().canRetryScene, false);
   assert.equal(h.calls.paints[2].prompt, h.calls.paints[3].prompt);
-  assert.deepEqual(Array.from(h.calls.paints[3].references), ["frame-2", "portrait"]);
+  assert.deepEqual(Array.from(h.calls.paints[3].references), ["portrait"]);
   assert.equal(h.calls.videos, 0);
 });
 
@@ -149,7 +157,7 @@ test("failed queued wish remains retryable with its original cut and no rewrite"
   assert.equal(h.calls.intent, 1);
   assert.equal(h.calls.paints[1].prompt, h.calls.paints[2].prompt);
   assert.deepEqual(Array.from(h.calls.paints[2].references), ["portrait"]);
-  assert.equal(h.director.getSnapshot().phase, "playing");
+  assert.equal(h.director.getSnapshot().phase, "choosing");
 });
 
 test("opening failure returns to intake and resubmitting can start again", async () => {
@@ -316,3 +324,143 @@ for (const route of ["image", "cast"]) {
     assert.doesNotMatch(JSON.stringify(response.body), /simulated provider failure/);
   });
 }
+
+
+test("every still is generated independently with only the portrait reference", async () => {
+  const h = directorHarness({ freeOnly: false });
+  await reachChoices(h);
+  h.director.choose(0);
+  await settle();
+  for (const paint of h.calls.paints) {
+    assert.deepEqual(Array.from(paint.references), ["portrait"]);
+    assert.ok(!paint.references.some(reference => /^frame-/.test(reference)));
+    assert.match(paint.prompt, /identity reference only/);
+  }
+  assert.equal(h.calls.videos, 0);
+});
+
+test("story read failure keeps the generated still and retries only the story", async () => {
+  const normal = {
+    scene: "cake kitchen", narration: "料理台已经摆好。", line: "想做什么味道？",
+    memory: "They are making a cake.", moved: false, freeOnly: false, choices,
+  };
+  const h = directorHarness({
+    freeOnly: false,
+    tellOverride: (_, number) => number === 2 ? null : normal,
+  });
+  await h.director.submitWish("一起做蛋糕");
+  await settle();
+  h.director.onClipEnded();
+  await settle();
+  const failed = h.director.getSnapshot();
+  assert.equal(failed.phase, "choosing");
+  assert.equal(failed.canRetryScene, true);
+  assert.match(failed.notice, /剧情暂时没写好/);
+  const paints = h.calls.paints.length;
+  h.director.retryScene();
+  await settle();
+  assert.equal(h.calls.paints.length, paints);
+  assert.equal(h.calls.reads.length, 3);
+  assert.equal(h.director.getSnapshot().phase, "choosing");
+  assert.equal(h.director.getSnapshot().canRetryScene, false);
+  assert.equal(h.director.getSnapshot().choices.length, 2);
+});
+
+test("accepted activity decisions and original wish reach subsequent story calls", async () => {
+  const h = directorHarness({ freeOnly: false });
+  await reachChoices(h);
+  h.director.choose(0);
+  await settle();
+  const latestRead = h.calls.reads.at(-1);
+  assert.equal(latestRead.wish, "想去海边");
+  assert.deepEqual(Array.from(latestRead.decisions), ["走近他"]);
+  await h.director.submitTyped("巧克力慕斯");
+  await settle();
+  assert.equal(h.calls.typedInputs.at(-1).wish, "想去海边");
+  assert.deepEqual(Array.from(h.calls.typedInputs.at(-1).decisions), ["走近他"]);
+});
+
+test("cake pacing prompt asks for concrete choices and still prompts are standalone", async () => {
+  const calls = [];
+  const story = loader({
+    "./llm": {
+      llmCall: async args => {
+        calls.push(args);
+        if (args.prompt.includes("PLAYER JUST TRIED")) {
+          return JSON.stringify({
+            scene: "A cake workspace", narration: "他把模具放到你面前。", line: "想做哪一种？",
+            memory: "They decide which cake to make.", moved: false, freeOnly: false,
+            choices: [
+              { label: "草莓奶油戚风", prompt: "A complete kitchen scene with strawberry ingredients.", cut: false },
+              { label: "巧克力慕斯", prompt: "A complete kitchen scene with chocolate and a mousse ring.", cut: false },
+            ],
+          });
+        }
+        return JSON.stringify({
+          prompt: "A complete kitchen workspace where he presents two cake-making directions.",
+          label: "在厨房决定蛋糕", cut: true,
+        });
+      },
+    },
+  })("lib/story.ts");
+
+  const intent = await story.writeIntentShot("一起做蛋糕", "anime", him, true, true);
+  assert.ok(intent);
+  assert.equal(intent.cut, true);
+  assert.match(calls[0].system, /first useful decision/);
+  assert.match(calls[0].system, /Keep undecided flavour and cake type open/);
+  assert.match(calls[0].system, /INDEPENDENT STILL IMAGE/);
+  assert.match(intent.prompt, /standalone scene illustration/);
+  assert.doesNotMatch(intent.prompt, /Sound:/);
+  assert.doesNotMatch(intent.prompt, /\[Static shot\]/);
+
+  const beat = await story.tellNext({
+    frames: ["cake-still"], memory: "Flour is on his cheek.", attempted: "一起做蛋糕",
+    previousLabels: [], beat: 2, style: "anime", him, wish: "一起做蛋糕",
+    scene: "They are in the kitchen.", decisions: [], still: true,
+  });
+  assert.deepEqual(Array.from(beat.choices, choice => choice.label), ["草莓奶油戚风", "巧克力慕斯"]);
+  assert.match(calls[1].prompt, /ORIGINAL PLAYER WISH: 一起做蛋糕/);
+  assert.match(calls[1].system, /must either resolve one meaningful decision or visibly advance/);
+  assert.match(calls[1].system, /do not replace a cake decision/);
+  assert.doesNotMatch(calls[1].system, /CLOSES THE DISTANCE/);
+  assert.ok(beat.choices.every(choice => choice.prompt.includes("standalone scene illustration")));
+});
+
+test("mid-story answer uses the ongoing-story system and player_answer field", async () => {
+  const calls = [];
+  const story = loader({
+    "./llm": {
+      llmCall: async args => {
+        calls.push(args);
+        return JSON.stringify({ prompt: "He starts folding chocolate into the mousse.", label: "开始做巧克力慕斯", cut: false });
+      },
+    },
+  })("lib/story.ts");
+  await story.writeTypedShot({
+    text: "巧克力慕斯", memory: "They are choosing a cake.", scene: "cake kitchen",
+    style: "anime", him, wish: "一起做蛋糕", decisions: [], still: true,
+  });
+  assert.match(calls[0].system, /ongoing activity, not an opening/);
+  assert.doesNotMatch(calls[0].system, /SECOND shot of the morning/);
+  const body = JSON.parse(calls[0].prompt);
+  assert.equal(body.player_answer, "巧克力慕斯");
+  assert.equal(body.player_wish, undefined);
+});
+
+test("filming state visibly explains that the next still is generating", () => {
+  const React = require("react");
+  const { renderToStaticMarkup } = require("react-dom/server");
+  const h = directorHarness();
+  const { Stage } = loader()("components/stage.tsx");
+  const html = renderToStaticMarkup(React.createElement(Stage, {
+    state: { ...h.director.getSnapshot(), phase: "filming", currentShot: {
+      beat: 1, action: null, kind: "opening", prompt: "opening", still: true,
+      videoUrl: "", rawUrl: "", thumb: "frame",
+    }, freezeFrame: "frame", workingLabel: "选择蛋糕口味" },
+    onClipEnded() {}, onChoose() {}, onTyped() {}, onRetry() {},
+  }));
+  assert.match(html, /正在生成下一张画面/);
+  assert.match(html, /选择蛋糕口味/);
+  assert.match(html, /完成后会自动继续/);
+});

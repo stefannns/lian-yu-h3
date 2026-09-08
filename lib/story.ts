@@ -26,10 +26,8 @@
  *   that films it, written while the clip was still playing. Picking one
  *   costs zero LLM calls, so a tap goes straight to h3.
  *
- * Two cards, not three. Two is the number that forces the writer to make
- * them mean different things — with three, the middle one is reliably a
- * softer restatement of the first, and a beat where both warm options say
- * the same thing is a beat with one real choice in it.
+ * Two concrete activity choices keep each beat readable. Free input remains
+ * available when the player wants a different flavour, design or action.
  */
 
 import {
@@ -52,7 +50,11 @@ import type { Beat, Choice } from "./types";
  * are restated on EVERY shot, not once at the start — h3 sees only this
  * call, so a style declared at beat one is a style gone by beat three.
  */
-export function dress(action: string, style: StyleKey): string {
+export function dress(action: string, style: StyleKey, still = false): string {
+  if (still) {
+    const moment = action.replace(/^\s*\[[^\]]+\]\s*/, "");
+    return `Create one standalone scene illustration. ${POV_LEAD} ${moment} ${POV_GUARD.replace("film", "image")} ${STYLES[style].still}`;
+  }
   // Order is load-bearing, and it follows MiniMax's own guidance for H3:
   //
   //   [camera tag]  the bracket command, first, where MiniMax expects it
@@ -107,103 +109,88 @@ export function imageKey(args: { frame: boolean; portrait: boolean }): string {
   );
 }
 
-const sharedRules = (him: Character) => `WHERE THIS STARTS
-She has JUST THIS MOMENT opened her eyes. The whole game begins on the first-person shot of her waking: eyelids lifting, the frame pulling from blur into focus, and him already there, sitting on the edge of the bed beside her. She is still lying down, still under the duvet. Nothing has happened yet, nobody has got up, and no time has passed.
-
-The opening shot is fixed and always that. It is a five-second prologue, not a scene: after it, the player's wish begins the main story on the very next shot. Never add a second waking-up beat, bed-side small talk, or getting-ready footage unless the player explicitly asked to stay in bed. After the main story begins, do not drift back to the bedroom unless she asks for it.
-
-After it the day may go anywhere — but a change of place is a CUT, and a cut has to be declared rather than smuggled in.
-
-  cut: false (the default) — the shot continues this scene. It is filmed straight off the previous frame, so the room, the light and the camera carry over. Everything inside one scene works this way.
-  cut: true — somewhere else, or later. The film cuts: a new place, new light, and nothing of the previous frame survives.
-
-Never write a change of place with cut:false. That asks for a bakery to grow out of a picture of a bedroom, and what comes back is neither.
+const sharedRules = (him: Character, still = false) => `You write a first-person romantic story driven by the player's chosen activity.
 
 THE CHARACTER
-The young man — ${descriptorPhrase(him)}. ${him.temperament}
-His name is ${him.name}. The player learns it the first time he speaks, because the interface prints it above his line — so NEVER write the name inside the line itself. He does not say his own name.
+The adult young man — ${descriptorPhrase(him)}. ${him.temperament}
+His name is ${him.name}. Do not put his name inside dialogue; the interface labels the speaker.
 
-THE PLAYER
-The player is a young woman. She is the camera. She is never seen: never write her face, her hair, her clothes, her body or her expression, and never her reflection. Her hands are the only part of her that may appear, and only when she is actually reaching for something. Write what she SEES and what he DOES — never how she looks doing it. "他们对视" is not a shot; "他垂下眼睛看你" is.
+THE PLAYER AND CAMERA
+She is the camera. Only he appears in the scene. Her hands may appear low in the foreground when needed; never show her face, hair, head, body, reflection or a third person. Describe what she sees and what he does toward the camera. Never use a third-person or over-the-shoulder view. In English prompts call her "her" or "the camera"; never put her in the frame.
+Only these two people exist in the story. Do not add voices, strangers, friends, family or background extras.
 
-THE CAST
-Two people exist in this story: her and him. Nobody else — no friend, no family, no neighbour, no stranger, no voice from another room, no one in a photograph. If the player asks for something involving other people, keep the scene to the two of them and film the part that is theirs: a call is him hanging up, a party is the two of them leaving for it, dinner with friends is him holding her coat at the door. Never introduce a third person into a shot prompt.
+WISH AND PLAYER AGENCY
+The original wish is the continuing objective, not a disposable opening cue. Carry the player's chosen details forward in memory. Every main-story beat must either resolve one meaningful decision or visibly advance the chosen activity.
+Ask for an undecided preference BEFORE committing to it. Do not choose her flavour, destination, design or intention for her. If she already gave the detail, use it immediately; do not ask it again. Her free input may combine several decisions; honour all of them.
+A brief affectionate gesture can colour an activity, but cannot replace its progress. At most one teasing/tasting/flour-on-the-face introduction; immediately move to a useful decision afterward. Do not chain glances, smiles, feeding, finger-touching or evasive replies into separate filler scenes.
+For "一起做蛋糕": go straight to the kitchen and cake-making. If flavour and cake type are undecided, ask what she wants to make and offer meaningfully different possibilities (for example strawberry cream chiffon versus chocolate mousse), while leaving free input available. After her choice, start that recipe; advance through mixing, baking/chilling, decoration and the finished cake. Skip repetitive preparation and waiting. Never return to flour teasing instead of progressing.
+For another wish, derive equivalent concrete decisions from THAT activity; do not use cake choices everywhere.
 
-THE CAMERA
-Strict first person, one continuous take. Never write a shot from outside, never an over-the-shoulder angle, never a cut to a third-person view. Every prompt describes the world from inside her head. You do not need to restate that it is first person — a fixed clause already does that at the front of every prompt. Spend your words on what he DOES.
+PACING AND LOCATION
+Waking is only a single brief opening prologue, at most five seconds. The next scene goes directly to the requested activity. Never restart waking or preparation in the middle of the story. Stay in bed only if explicitly requested.
+cut: true means a new place or a meaningful time jump. Use it freely to skip uneventful work or waiting. cut: false means the current scene. Both must keep the character and the player's established decisions.
+Warm romance, nothing explicit, no nudity or violence. Dialogue is Chinese UI text, never lettering or spoken dialogue inside a visual prompt.
 
-WRITING A SHOT PROMPT (English) — this video model is MiniMax H3, and it has opinions
-- LEAD WITH THE ACTION, not with a noun or a mood. H3 weights the verb hardest. "Leans in and rests his forehead against hers" beats "He is leaning in".
-- BREAK IT INTO TWO OR THREE BEATS in time, using first / then / as / finally. One state described richly gives the model nothing to animate; two beats give it a shot. "He reaches for the mug, then stops halfway and looks at her instead."
-- 40 TO 80 WORDS. Under 480 characters, hard limit — fixed camera, sound and style clauses are appended to whatever you write, and the model rejects the whole prompt past about two thousand characters.
-- Describe CHANGE, not the room. The previous frame already carries the room; re-describing it makes the model rebuild it slightly differently.
-- ONE physical action, big enough to read in ten seconds. "He turns his head" is nothing.
-- Say how the WORLD reacts to it where there is something to say — the duvet shifts, the light moves on his face, steam bends. H3 uses that to decide how things move.
-- You may open the prompt with ONE MiniMax camera command in square brackets when the beat genuinely wants a move: [Static shot], [Push in], [Pull out], [Pan left], [Pan right], [Tilt up], [Tilt down], [Truck left], [Truck right], [Zoom in], [Zoom out], [Shake], [Tracking shot]. Default to nothing and let the shot be still — this is an intimate two-hander, not a showreel. [Push in] for a moment of closeness, [Tilt down] when she looks at what he is holding, [Shake] only for a real jolt.
-- Name him as "the young man — ${descriptorPhrase(him)} —" the first time he appears, exactly those words, and just "he" after that. Never write his Chinese name into an English prompt; the model cannot read it and it displaces detail that would have gone on his face.
-- Nothing sexual beyond a kiss, nothing violent, no nudity. Warm and tender, not explicit.
-- No dialogue in the prompt — he never speaks on camera. His words are delivered as on-screen text.
-- No game mechanics, no UI, no camera equipment, no shot numbers.
-- HER BODY IS NOT IN THE SHOT, and this is the rule most often broken. Her HANDS may appear, in the near foreground, when she is actually reaching for something. Nothing else — not her head, hair, face, shoulders, arms or torso.
-  WRONG: "resting her head gently against his shoulder" — that is her head, in frame.
-  WRONG: "tucks a strand of hair behind her ear" — that is her hair, in frame.
-  WRONG: "he pulls her into his arms" — the camera cannot see her being pulled.
-  RIGHT: "he opens his arms and leans in until his shoulder fills the frame".
-  RIGHT: "he reaches past the camera; his sleeve brushes the lens".
-  The test: if a real camera strapped to her forehead could not see it, do not write it. Contact with her is shown by what comes TOWARD the camera, never by showing her receiving it.
-- Write her as "her" or "the camera", never "you", and keep it consistent across the whole prompt. Never put her, or any third person, in the frame.`;
+${still
+  ? `WRITING AN INDEPENDENT STILL IMAGE
+Write 45-90 English words, at most 650 characters. Describe ONE readable moment, its complete location, relevant objects, his pose and the visible result of the player's action. Each image is generated independently; no previous scene image is supplied. Character portrait is for identity only.
+Do not ask to edit, continue or reproduce an earlier frame or its camera. Do not write a sequence, duration, camera-motion tags, sound, or video instructions. Include the scene's important details every time, even when cut is false.`
+  : `WRITING A VIDEO ACTION
+Write 40-80 English words, at most 480 characters. Lead with one meaningful physical action and two or three chronological beats. Within a scene the previous frame supplies continuity; for a cut describe the new place fully. Optional camera commands: [Static shot], [Push in], [Tilt down]. No dialogue, sound instructions, UI, equipment or shot numbers in the action.`}
 
-const tellSystem = (him: Character) => `You are the storyteller of a 乙女游戏 (otome game). You are given still frames sampled from the ten seconds of film that just played, in order: the start, the middle, the end.
+Name him as "the young man — ${descriptorPhrase(him)} —" the first time, then "he". Never insert his Chinese name into an English visual prompt.`;
 
-${sharedRules(him)}
+const tellSystem = (him: Character, still = false) => `You are the storyteller of a 乙女游戏 (otome game).
+${still ? "You are given one generated still showing the current moment. It is not a video sequence." : "You are given sampled frames of the scene that just played, in chronological order."}
+
+${sharedRules(him, still)}
 
 YOUR JOB
-Read the frames. Say what ACTUALLY happened on screen — not what was intended. The video model does not obey prompts exactly, and the frames are the only truth. If he did something other than what was asked, narrate what he did.
+Narrate only what the supplied image(s) actually show. Do not claim an intended action happened if it is absent. In a still, do not invent unseen before/after motion. Use the current image as visual truth; use the original wish, memory and accepted decisions to choose the next meaningful step.
+A decorative introductory beat is over as soon as it is narrated: the next question must concern the actual activity. If the player already chose flavour and cake type, do not return to choosing them; advance the recipe instead.
 
-Return ONLY JSON in exactly this shape:
+Return ONLY JSON:
 {"scene": string, "narration": string, "line": string|null, "memory": string, "moved": boolean, "freeOnly": boolean, "choices": [{"label": string, "prompt": string, "cut": boolean}]}
 
-- scene: English. What is visible in the FINAL frame — where he is, what he is doing, the light. One sentence. Never shown to the player. If the frame has drifted and shows her, or shows a third person, say so plainly here; the next prompt has to pull the camera back.
-- narration: 中文。第二人称（"你"）—— 你是一个女孩，但永远不要描写你自己的样子、表情或动作以外的东西，画面里也看不见你。一到两句，写刚刚发生的事和他的样子。文学一点，不要旁白腔，不要复述选项。
-- line: 他说的一句中文台词本身，短，符合他的性格。**只写话，不写名字、不加引号、不加冒号** —— 界面已经在台词上方单独显示他的名字，再写一次会变成「Q：Q 说……」。如果这一幕他不该说话，返回 null。
-- memory: English, at most 60 words, present tense, completed facts only — the running memory of this morning so far. Rewrite it each beat; do not append.
-- moved: true only if the FINAL frame is in a different place than the first frame.
-- freeOnly: normally false. Set true when he has asked her something personal or open-ended and the moment needs HER exact words — for example, what she wants, what she remembers, whether she trusts him, or how she feels. Do not use it just because a scene is quiet. When true, choices MUST be []: the interface shows only a free-writing answer box.
-- choices: when freeOnly is false, exactly two, and they must pull in opposite directions. One CLOSES THE DISTANCE — reach for him, answer him, give in. The other DOES NOT — deflect, tease, get up, look away, change the subject or the room. Two moves that both mean "be sweet to him" is a failed beat: with only two cards there is no room for a near-duplicate. Never repeat a move already offered.
-  - label: 中文，第二人称，六到十四个字，是"你"要做的事。
-  - prompt: English shot prompt for that move, following the shot rules above — action first, two or three beats, 40-80 words, UNDER 480 CHARACTERS each.
-  - cut: true only if that move goes somewhere else or later; false continues this scene. Most beats are false — a scene wants room to breathe before it moves. When true, describe the new place fully.`;
+- scene: one English sentence describing the current image's location and visible state.
+- narration: 中文，第二人称，一到两句，简洁具体，说明眼前画面和活动进展，不描写玩家外貌，不重复无意义的暧昧动作。
+- line: 一句简短中文台词，不加名字、引号或冒号。优先询问当前活动中尚未决定的关键偏好；如无须说话返回 null。
+- memory: English, at most 80 words. Preserve the original goal, accepted player preferences (flavour, cake type, etc.), completed milestones and the next unresolved decision. Do not treat proposed options as accepted facts.
+- moved: whether the current scene changed location from the supplied prior scene description. A single still does not show a journey.
+- freeOnly: true when only the player's own words make sense. Then choices MUST be []. For concrete activity choices, offer helpful possibilities AND leave the normal free input available.
+- choices: otherwise exactly two materially different ways to advance the chosen activity. They need not be emotional opposites. Do not force "approach him versus avoid him", and do not replace a cake decision with "taste his finger versus look away". Both may be affectionate; their consequences must differ.
+  - label: 中文，四到十八个字，明确表达玩家要决定或做的事，例如“草莓奶油戚风”与“巧克力慕斯”，不要含糊地只写“听他的”。
+  - prompt: the English visual prompt for AFTER she chooses this option, including its concrete consequence, following the mode-specific rules above.
+  - cut: true for a location/time jump; do not prolong a scene just to keep cut false.`;
 
-const intentSystem = (him: Character, mustLeaveOpening: boolean) => `You turn a player's typed wish into ONE English shot prompt for a video model, for a 乙女游戏 (otome game).
+const intentSystem = (him: Character, mustLeaveOpening: boolean, still = false) => `Turn the player's original wish into the FIRST MAIN SCENE of a 乙女游戏.
 
-${sharedRules(him)}
+${sharedRules(him, still)}
 
-She has typed — probably in 中文 — what she wants from today. It may be vague ("想和他去海边"), a mood ("今天想被宠着"), or a specific act.
-
-This is the SECOND shot of the morning. The first was her five-second waking prologue: eyes opening, him already sitting on the edge of the bed beside her. This second shot MUST begin the actual story the player asked for; do not spend it on another waking-up reaction.
-
-Two shapes are available, and you say which by setting "cut":
-
-  STAY IN THE BED (cut: false) — only when the player EXPLICITLY asks to stay in bed, sleep longer, or linger under the covers. It is never the default for a vague wish or an affectionate mood.
-    "今天想被宠着"  ->  he leans down and rests his forehead against the pillow beside her.
-
-  CUT TO WHERE THE WISH GOES (cut: true) — skip the getting-up entirely and open on the place itself, already there, him with her. Best when the wish names an activity or a somewhere.
-    "想吃肉松面包"  ->  cut to the warm bakery: he turns from the counter with a tray, holding it out toward the camera.
-    "想去海边"      ->  cut to the sea wall in flat afternoon light: he walks backwards ahead of her, talking, wind in his shirt.
-
-Pick whichever serves the wish. Never film the boring middle — nobody wants ten seconds of shoes going on. If you cut, cut all the way to the good part, and describe the NEW place in full, because nothing of the bedroom carries over.
-
+The five-second waking prologue is already over. Start the requested activity now, at its first useful decision; do not write another waking reaction, a getting-ready scene or an obligatory teasing scene.
+For cake-making, show the kitchen workspace and him ready to help choose a cake. Keep undecided flavour and cake type open. Do not portray a finished strawberry cake before she has chosen strawberry.
 ${mustLeaveOpening
-  ? "PACING DECISION: the player did not ask to remain in bed. Return cut: true. Open directly on the requested activity or emotional centre of the day; do not mention the bedroom, waking, getting dressed, or leaving home."
-  : "PACING DECISION: the player explicitly asked to remain in bed, so cut may be false if that serves the wish."}
+  ? "PACING DECISION: return cut: true. Open directly on the activity; no bedroom, getting dressed or leaving home."
+  : "PACING DECISION: the player explicitly requested staying in bed. Remain there only as the wish requires."}
 
-If the wish involves other people, keep the shot to the two of them and film only his half of it. A third person never enters the frame.
-
-Return ONLY JSON in exactly this shape:
+Return ONLY JSON:
 {"prompt": string, "label": string, "cut": boolean}
-- cut: true if you cut to a new place, false if you stay in the bed.
-- prompt: the English shot prompt, following the shot rules above — action first, two or three beats, 40-80 words, UNDER 480 CHARACTERS.
-- label: 中文，八到十六个字，把她的愿望复述成这一幕的名字。`;
+- prompt: the English visual prompt under the selected mode's rules.
+- label: 中文，八到十六个字，概括真正开始的活动。
+- cut: true for a location/time jump, false only when continuing the current place and time.`;
+
+const typedSystem = (him: Character, still = false) => `Turn the player's latest answer or action into the NEXT MAIN-STORY SCENE. This is an ongoing activity, not an opening.
+
+${sharedRules(him, still)}
+
+Use the original wish, current scene, recorded choices and the latest answer together. A short answer such as "巧克力慕斯" is a concrete cake decision: show that recipe starting, not another request to choose a cake or another romantic prelude. Do not invent remaining personal preferences; leave them for the next question.
+Skip routine waiting and repeated gestures. Keep the same place unless the answer or progress needs a change. If the player explicitly changes direction, honour that change.
+
+Return ONLY JSON:
+{"prompt": string, "label": string, "cut": boolean}
+- prompt: English visual prompt showing the consequence of her answer.
+- label: brief 中文 description of this step.
+- cut: true for a change of place or a time jump; otherwise false.`;
 
 const openingMemory = () => `The player has just woken in their own bed on a slow morning. The young man is sitting on the edge of the bed beside them. Nothing has happened yet.`;
 
@@ -226,7 +213,7 @@ function parse(text: string): Record<string, unknown> {
   }
 }
 
-function readChoices(raw: unknown, style: StyleKey): Choice[] {
+function readChoices(raw: unknown, style: StyleKey, still = false): Choice[] {
   if (!Array.isArray(raw)) return [];
   const out: Choice[] = [];
   for (const entry of raw.slice(0, CHOICE_COUNT)) {
@@ -235,7 +222,7 @@ function readChoices(raw: unknown, style: StyleKey): Choice[] {
     const label = str(record.label, 40);
     const prompt = str(record.prompt, 900);
     if (label && prompt) {
-      out.push({ label, prompt: dress(prompt, style), cut: record.cut === true });
+      out.push({ label, prompt: dress(prompt, style, still), cut: record.cut === true });
     }
   }
   return out;
@@ -271,22 +258,30 @@ export async function tellNext(args: {
   style: StyleKey;
   /** Who he is this run. */
   him: Character;
+  wish?: string;
+  scene?: string;
+  decisions?: string[];
+  still?: boolean;
+  opening?: boolean;
 }): Promise<Beat | null> {
   const prompt =
-    `SETTING: ${OPENING_SCENE}\n` +
-    `THE MORNING SO FAR: ${args.memory || openingMemory()}\n` +
+    `ORIGINAL PLAYER WISH: ${args.wish || "Follow the player's current activity."}\n` +
+    `ACCEPTED PLAYER ACTIONS: ${JSON.stringify(args.decisions ?? [])}\n` +
+    `PREVIOUS SCENE: ${args.scene || (args.opening ? OPENING_SCENE : "Read the current image." )}\n` +
+    `STORY SO FAR AND ACCEPTED DECISIONS: ${args.memory || (args.opening ? openingMemory() : "The main activity is beginning.")}\n` +
     `THE PLAYER JUST TRIED: ${args.attempted}\n` +
     (args.previousLabels.length > 0
       ? `ALREADY OFFERED (never reoffer these): ${args.previousLabels.join(" / ")}\n`
       : "") +
     `BEAT: ${args.beat}\n\n` +
-    `The three frames are the start, middle and end of the shot that just played. ` +
-    `Read them and write the next beat.`;
+    (args.still
+      ? "One independent still is supplied. Read this moment and immediately offer the next meaningful activity decision."
+      : "Read the supplied chronological frames and write the next meaningful activity decision.");
 
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
       const output = await llmCall({
-        system: tellSystem(args.him),
+        system: tellSystem(args.him, args.still),
         prompt,
         images: args.frames.slice(0, 3),
         // Generous on purpose. A truncated reply is not a short reply — it is
@@ -300,7 +295,7 @@ export async function tellNext(args: {
         json: true,
       });
       const data = parse(output);
-      const choices = readChoices(data.choices, args.style);
+      const choices = readChoices(data.choices, args.style, args.still);
       const narration = str(data.narration, 300);
       const freeOnly = data.freeOnly === true;
       if ((!freeOnly && choices.length !== CHOICE_COUNT) || !narration) continue;
@@ -331,14 +326,15 @@ export async function writeIntentShot(
   wish: string,
   style: StyleKey,
   him: Character,
-  mustLeaveOpening = false
+  mustLeaveOpening = false,
+  still = false
 ): Promise<Choice | null> {
   const text = wish.trim().slice(0, 280);
   if (!text) return null;
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const output = await llmCall({
-        system: intentSystem(him, mustLeaveOpening),
+        system: intentSystem(him, mustLeaveOpening, still),
         // The wish is untrusted player text, so it is handed over as data
         // rather than pasted into the instructions.
         prompt: JSON.stringify({ player_wish: text }),
@@ -350,7 +346,7 @@ export async function writeIntentShot(
       const prompt = str(data.prompt, 900);
       const label = str(data.label, 40);
       if (prompt) {
-        return { label: label || text, prompt: dress(prompt, style), cut: data.cut === true };
+        return { label: label || text, prompt: dress(prompt, style, still), cut: mustLeaveOpening || data.cut === true };
       }
     } catch (cause) {
       console.error(`[writeIntentShot] attempt ${attempt + 1} failed:`, cause);
@@ -369,17 +365,21 @@ export async function writeTypedShot(args: {
   scene: string;
   style: StyleKey;
   him: Character;
+  wish?: string;
+  decisions?: string[];
+  still?: boolean;
 }): Promise<Choice | null> {
   const text = args.text.trim().slice(0, 280);
   if (!text) return null;
   try {
     const output = await llmCall({
-      // This is already mid-story, so the opening-only cut rule is irrelevant.
-      system: intentSystem(args.him, false),
+      system: typedSystem(args.him, args.still),
       prompt: JSON.stringify({
+        original_player_wish: args.wish,
+        accepted_player_actions: args.decisions ?? [],
         the_morning_so_far: args.memory,
         what_is_on_screen_right_now: args.scene,
-        player_wish: text,
+        player_answer: text,
       }),
       maxTokens: 400,
       temperature: 0.9,
@@ -390,7 +390,7 @@ export async function writeTypedShot(args: {
     if (!prompt) return null;
     return {
       label: str(data.label, 40) || text,
-      prompt: dress(prompt, args.style),
+      prompt: dress(prompt, args.style, args.still),
       cut: data.cut === true,
     };
   } catch (cause) {

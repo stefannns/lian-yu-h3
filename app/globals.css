@@ -423,6 +423,27 @@ button {
   pointer-events: none;
 }
 
+.scene-progress {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  z-index: 2;
+  max-width: min(420px, 80%);
+  padding: 10px 14px;
+  border-radius: 4px;
+  background: rgba(28, 20, 18, 0.78);
+  color: #fdf6ee;
+  font-size: 13px;
+  line-height: 1.6;
+  pointer-events: none;
+}
+
+.scene-progress span {
+  display: block;
+  color: rgba(253, 246, 238, 0.7);
+  font-size: 11px;
+}
+
 .shutter-card {
   max-width: 520px;
   text-align: center;

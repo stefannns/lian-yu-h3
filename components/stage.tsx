@@ -190,6 +190,14 @@ export function Stage({
       )}
       <div className="vignette" />
 
+      {state.phase === "filming" && (
+        <div className="scene-progress" role="status">
+          {state.videoOff ? "正在生成下一张画面" : "正在生成下一段视频"}
+          {state.workingLabel && `：${state.workingLabel}`}
+          <span>请稍候，完成后会自动继续</span>
+        </div>
+      )}
+
       {/* Narration during the queued-shot hold, where there are no cards yet
           but there is something to read. */}
       <Fade show={state.phase === "filming" && state.narration !== null}>

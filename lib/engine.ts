@@ -141,6 +141,8 @@ export class Director {
   private lastFrame: string | null = null;
   /** Running memory the storyteller rewrites each beat. */
   private memory = "";
+  private wish = "";
+  private decisions: string[] = [];
   /** Latest scene ground truth, for the free-text writer. */
   private scene = "";
   /** Labels already offered, so nothing is reoffered. */
@@ -160,6 +162,7 @@ export class Director {
   private canned: Promise<Prepared | null> | null = null;
   private cannedRequest: SceneRequest | null = null;
   private retryRequest: SceneRequest | null = null;
+  private retryRead: Prepared | null = null;
   /** The beat the storyteller wrote while the clip was playing. */
   private pendingBeat: Beat | null = null;
   private clipEnded = false;
@@ -272,7 +275,6 @@ export class Director {
           action: null,
           kind: "opening",
           attempted: "waking up",
-          references: this.portrait ? [this.portrait] : [],
         });
       }
 
@@ -341,7 +343,7 @@ export class Director {
       })
         .then((res) => (res.ok ? res.json() : { allowed: false }))
         .catch(() => ({ allowed: false })),
-      writeIntentShot(wish, this.style, him, !isStayInBedWish(wish)),
+      writeIntentShot(wish, this.style, him, !isStayInBedWish(wish), this.videoOff),
     ]);
     if (token !== this.token) return;
 
@@ -365,6 +367,7 @@ export class Director {
       return;
     }
 
+    this.wish = wish;
     // The opening plays first, and this films underneath it.
     const opening = this.canned;
     this.canned = null;
@@ -395,10 +398,11 @@ export class Director {
         mustLeaveOpening
           ? `Cut directly to the central scene the viewer asked for: ${wish}. ` +
             `The young man — ${him.descriptor} — is already there with her. ` +
-            `One clear, tender physical action; do not show the bedroom or getting ready.`
+            `Show the activity ready for the player's first meaningful decision; no bedroom or getting ready.`
           : `The young man — ${him.descriptor} — responds to what the viewer wants of ` +
             `this morning: ${wish}. One clear, tender physical action, unhurried.`,
-        this.style
+        this.style,
+        this.videoOff
       ),
       cut: mustLeaveOpening,
     };
@@ -406,7 +410,7 @@ export class Director {
       prompt: wishShot.prompt,
       action: wishShot.label,
       kind: "intent",
-      attempted: wishShot.label,
+      attempted: wish,
       // The wish may cut straight to wherever it goes — the bakery, the sea —
       // rather than answering from the bed. See intentSystem in lib/story.ts.
       fromFrame: wishShot.cut ? undefined : prepared.lastFrame,
@@ -417,8 +421,8 @@ export class Director {
   /** Take one of the cards. Nothing is pre-filmed, so this films now. */
   /**
    * Can the next shot be made? Video chains off the previous last frame and
-   * is meaningless without one. 无视频模式 also chains its Gemini stills from
-   * their previous image, so it needs one after the opening too.
+   * is meaningless without one. In still mode this only confirms there is a
+   * current story scene; that image is not sent to the next generation.
    */
   private canFilm(): boolean {
     return Boolean(this.lastFrame);
@@ -430,6 +434,7 @@ export class Director {
     if (!choice || !this.canFilm()) return;
     const token = this.token;
     this.retryRequest = null;
+    this.retryRead = null;
     this.set({ phase: "filming", workingLabel: choice.label, choices: [], notice: null, canRetryScene: false });
     void this.filmAndLand(token, {
       prompt: choice.prompt,
@@ -454,6 +459,7 @@ export class Director {
     const token = this.token;
     const frame = this.lastFrame ?? "";
     this.retryRequest = null;
+    this.retryRead = null;
     this.set({ phase: "filming", workingLabel: text, choices: [], notice: null, canRetryScene: false });
 
     const [moderation, written] = await Promise.all([
@@ -466,6 +472,9 @@ export class Director {
         .catch(() => ({ allowed: false })),
       writeTypedShot({
         text,
+        wish: this.wish,
+        decisions: this.decisions,
+        still: this.videoOff,
         memory: this.memory,
         scene: this.scene,
         style: this.style,
@@ -492,22 +501,31 @@ export class Director {
       label: text,
       prompt: dress(
         `The young man — ${him.descriptor} — responds as the viewer does this: ${text}. ` +
-          `One clear physical action, unhurried.`,
-        this.style
+          `Advance the chosen activity with a complete view of the current setting: ${this.scene}.`,
+        this.style,
+        this.videoOff
       ),
     };
     void this.filmAndLand(token, {
       prompt: shot.prompt,
       action: shot.label,
       kind: "typed",
-      attempted: shot.label,
+      attempted: text,
       fromFrame: shot.cut ? undefined : frame || undefined,
     });
   }
 
   /** Retry the same prompt and references, with no new story-writing call. */
   retryScene() {
-    if (this.state.phase !== "choosing" || !this.retryRequest) return;
+    if (this.state.phase !== "choosing") return;
+    if (this.retryRead) {
+      const prepared = this.retryRead;
+      this.retryRead = null;
+      this.set({ phase: "writing", notice: null, canRetryScene: false });
+      void this.read(this.token, prepared);
+      return;
+    }
+    if (!this.retryRequest) return;
     const request = this.retryRequest;
     this.retryRequest = null;
     this.set({
@@ -525,6 +543,8 @@ export class Director {
     this.portrait = null;
     this.lastFrame = null;
     this.memory = "";
+    this.wish = "";
+    this.decisions = [];
     this.scene = "";
     this.offered = [];
     this.canned = null;
@@ -532,6 +552,7 @@ export class Director {
     this.cannedRequest = null;
     this.retryRequest = null;
     this.pendingChoices = [];
+    this.retryRead = null;
     this.clipEnded = false;
     this.wishSubmitted = false;
     this.started = false;
@@ -613,9 +634,8 @@ export class Director {
 
   /**
    * 无视频模式: one Gemini/Nano Banana still per beat, never a fal/H3 call.
-   * The preceding still is Image 1, and an existing portrait is Image 2, so
-   * the painter inherits both the room and him just as ref2v would. A cut
-   * intentionally omits the previous frame but keeps his portrait.
+   * Each scene is generated independently. Only his portrait is supplied
+   * for identity; previous scene images are never used as an edit target.
    */
   private async paintStill(
     token: number,
@@ -626,20 +646,13 @@ export class Director {
       attempted: string;
       prompt: string;
       fromFrame?: string;
-      /** Used only for the opening; later frames derive references themselves. */
-      references?: string[];
     }
   ): Promise<Prepared | null> {
     const beat = args.beat ?? this.state.beat + 1;
-    const references = args.references ?? [
-      ...(args.fromFrame ? [args.fromFrame] : []),
-      ...(this.portrait ? [this.portrait] : []),
-    ];
+    const references = this.portrait ? [this.portrait] : [];
     const referenceLead = this.portrait
-      ? imageKey({ frame: Boolean(args.fromFrame), portrait: true })
-      : args.fromFrame
-        ? "Image 1 is the previous scene: continue its room, light, and first-person camera. "
-        : "";
+      ? "Image 1 is a character identity reference only. Keep his face and appearance. Compose a fresh scene from the text; do not copy the portrait's background or pose. "
+      : "";
 
     try {
       const image = await paintFrame({
@@ -701,6 +714,10 @@ export class Director {
    */
   private land(token: number, prepared: Prepared) {
     this.retryRequest = null;
+    this.retryRead = null;
+    if (prepared.shot.kind === "choice" || prepared.shot.kind === "typed") {
+      this.decisions = [...this.decisions, prepared.attempted].slice(-20);
+    }
     this.lastFrame = prepared.lastFrame;
     this.pendingBeat = null;
     this.clipEnded = false;
@@ -740,6 +757,11 @@ export class Director {
     if (!him) return;
     const beat = await tellNext({
       frames: prepared.strip,
+      wish: this.wish,
+      decisions: this.decisions,
+      scene: this.scene,
+      still: prepared.shot.still,
+      opening: prepared.shot.kind === "opening",
       memory: this.memory,
       attempted: prepared.attempted,
       previousLabels: this.offered,
@@ -749,17 +771,27 @@ export class Director {
     });
     if (token !== this.token || this.state.beat !== prepared.shot.beat) return;
     if (!beat) {
-      // Three attempts have already been made inside tellNext. There is no
-      // canned beat behind this on purpose: generic filler dropped into a
-      // written story is worse than an honest stop, and it compounds — the
-      // filler films a generic shot and the next read is made on that.
-      this.set({ phase: "error", error: "讲述者读不懂这一幕。今天的故事到此为止。" });
+      // Keep the generated image; retry narration without paying for it again.
+      this.retryRead = prepared;
+      this.clipEnded = true;
+      this.pendingChoices = [];
+      this.set({
+        phase: "choosing", choices: [], workingLabel: null, canRetryScene: true,
+        notice: "画面已生成，剧情暂时没写好。点重试这一幕即可继续。",
+      });
       return;
     }
 
     this.memory = beat.memory || this.memory;
     this.scene = beat.scene || this.scene;
     this.pendingBeat = beat;
+    // A still has no motion to finish: offer its choices as soon as ready.
+    // Only the brief waking prologue keeps its five-second dwell.
+    if (prepared.shot.still && prepared.shot.kind !== "opening") {
+      if (this.dwell !== null) window.clearTimeout(this.dwell);
+      this.dwell = null;
+      this.clipEnded = true;
+    }
     if (this.clipEnded) void this.applyBeat(token, beat);
   }
 
@@ -787,9 +819,9 @@ export class Director {
         narration: beat.narration,
         line: beat.line,
         choices: [],
-        workingLabel: null,
+        workingLabel: request?.action ?? "下一幕",
       });
-      const [prepared] = await Promise.all([queued, sleep(NARRATION_DWELL_MS)]);
+      const [prepared] = await Promise.all([queued, this.videoOff ? Promise.resolve() : sleep(NARRATION_DWELL_MS)]);
       if (token !== this.token) return;
       if (!prepared) {
         // The queued shot died, so the cards this beat wrote become the
