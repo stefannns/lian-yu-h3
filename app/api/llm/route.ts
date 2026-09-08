@@ -5,11 +5,11 @@ import { generateGemini, type GeminiPart } from "@/lib/gemini";
  * Server-side Gemini proxy.
  *
  * The Adjudicator, the Witness and the DM all run in the browser, so they
- * cannot hold a key. This route is the equivalent of the fal proxy for
- * Google's API: the key stays in the process environment and only the
+ * cannot hold a key. This route is the server bridge for Google's API: the
+ * key stays in the process environment and only the
  * generated text crosses back.
  *
- * Caps are deliberate. Like the fal proxy this endpoint is unauthenticated,
+ * Caps are deliberate. This endpoint is unauthenticated,
  * so anything reachable from the page is reachable by anyone who finds it —
  * bounding tokens and payload size keeps a stray caller from being able to
  * spend real money.

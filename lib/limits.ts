@@ -1,15 +1,12 @@
 /**
  * Numbers that both halves of the app need to agree on.
  *
- * Split out so the writing layer does not have to import the fal client to
- * learn the prompt budget. lib/story.ts is pure logic and has to stay
- * importable from a server route and a CLI; lib/fal.ts touches the browser
- * canvas and cannot. One constant was the only thing tying them together.
+ * Split out so the server-importable writing layer does not have to import
+ * the browser-only Reactor client just to learn the prompt budget.
  */
 
 /**
- * The length past which h3 starts refusing prompts. MiniMax's underlying API
- * caps the prompt at roughly two thousand characters; fal does not document
- * it, so this sits below the observed edge rather than at it.
+ * Reactor FastH3 accepts at most 800 prompt characters. Keep a little room
+ * below the wire limit so transport-level normalization cannot tip it over.
  */
-export const PROMPT_WARN_CHARS = 1_900;
+export const PROMPT_WARN_CHARS = 780;

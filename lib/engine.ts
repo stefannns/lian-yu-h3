@@ -22,8 +22,8 @@
  * a run token, so a reset can never be clobbered by an in-flight shot.
  */
 
-import { filmShot, loadPortrait, paintFrame } from "./fal";
-import { extractFrames } from "./frames";
+import { discardReactorClip, filmShot, resetReactorSession } from "./reactor";
+import { loadPortrait, paintFrame } from "./visuals";
 import { dress, imageKey, tellNext, writeIntentShot, writeTypedShot } from "./story";
 import {
   OPENING_SHOT_SECONDS,
@@ -138,7 +138,7 @@ export class Director {
   /** Bumped on reset; every async continuation checks it. */
   private token = 0;
 
-  /** His portrait — ref2v "Image 2" on every shot. Null = i2v fallback. */
+  /** His portrait — the starting frame for a cut and the identity anchor. */
   private portrait: string | null = null;
   /** Full-res last frame of the newest landed shot; the next shot chains it. */
   private lastFrame: string | null = null;
@@ -172,6 +172,8 @@ export class Director {
   private retryRead: Prepared | null = null;
   /** The beat the storyteller wrote while the clip was playing. */
   private pendingBeat: Beat | null = null;
+  /** Current clip details retained until Reactor playback supplies real frames. */
+  private activePrepared: Prepared | null = null;
   private clipEnded = false;
   /** Set while the player is still typing and the opening is being prepared. */
   private wishSubmitted = false;
@@ -271,7 +273,7 @@ export class Director {
     const him = this.him;
     if (!him) return null;
     try {
-      // 无视频模式 is a Gemini still story: it never calls fal/H3, but each
+      // 无视频模式 is a Gemini still story: it never calls Reactor/H3, but each
       // beat has one painted frame, anchored to the character's portrait.
       if (this.videoOff) {
         this.portrait = him.hasArt ? await loadPortrait(him.id, this.style) : null;
@@ -552,6 +554,7 @@ export class Director {
   }
 
   reset() {
+    if (!this.videoOff) void resetReactorSession();
     this.token++;
     this.portrait = null;
     this.lastFrame = null;
@@ -564,6 +567,7 @@ export class Director {
     this.offered = [];
     this.canned = null;
     this.pendingBeat = null;
+    this.activePrepared = null;
     this.cannedRequest = null;
     this.retryRequest = null;
     this.pendingChoices = [];
@@ -625,10 +629,10 @@ export class Director {
         fromFrame: args.fromFrame,
         portrait: this.portrait ?? undefined,
       });
-      if (token !== this.token) return null;
-
-      const frames = await extractFrames(clip.videoUrl);
-      if (token !== this.token) return null;
+      if (token !== this.token) {
+        void discardReactorClip(clip.clipId);
+        return null;
+      }
 
       return {
         shot: {
@@ -637,12 +641,13 @@ export class Director {
           kind: args.kind,
           prompt: args.prompt,
           still: false,
-          videoUrl: clip.videoUrl,
-          rawUrl: clip.rawUrl,
-          thumb: frames.thumb,
+          videoUrl: "",
+          rawUrl: "",
+          reactorClipId: clip.clipId,
+          thumb: args.fromFrame ?? this.portrait ?? "",
         },
-        lastFrame: frames.lastFrame,
-        strip: frames.strip,
+        lastFrame: args.fromFrame ?? this.portrait ?? "",
+        strip: [],
         attempted: args.attempted,
         decisionKey: args.decisionKey,
       };
@@ -653,7 +658,7 @@ export class Director {
   }
 
   /**
-   * 无视频模式: one Gemini/Nano Banana still per beat, never a fal/H3 call.
+   * 无视频模式: one Gemini/Nano Banana still per beat, never a Reactor/H3 call.
    * Each scene is generated independently. Only his portrait is supplied
    * for identity; previous scene images are never used as an edit target.
    */
@@ -749,6 +754,7 @@ export class Director {
       this.automaticBeats += 1;
     }
     this.lastFrame = prepared.lastFrame;
+    this.activePrepared = prepared;
     this.pendingBeat = null;
     this.clipEnded = false;
 
@@ -779,7 +785,45 @@ export class Director {
       }, STILL_DWELL_MS);
     }
 
-    void this.read(token, prepared);
+    // Reactor clips are read after live playback has supplied their real
+    // frames. Painted stills already carry their complete visual truth.
+    if (prepared.shot.still) void this.read(token, prepared);
+  }
+
+  /** Finish a live Reactor clip with frames sampled from its WebRTC stream. */
+  onReactorClipEnded(frames: { lastFrame: string; strip: string[]; thumb: string }) {
+    const prepared = this.activePrepared;
+    const current = this.state.currentShot;
+    if (
+      this.state.phase !== "playing" ||
+      !prepared ||
+      !current?.reactorClipId ||
+      prepared.shot.reactorClipId !== current.reactorClipId
+    ) return;
+
+    const completed: Prepared = {
+      ...prepared,
+      shot: { ...prepared.shot, thumb: frames.thumb },
+      lastFrame: frames.lastFrame,
+      strip: frames.strip,
+    };
+    this.activePrepared = completed;
+    this.lastFrame = frames.lastFrame;
+    this.clipEnded = true;
+    this.set({
+      phase: "writing",
+      currentShot: completed.shot,
+      shots: this.state.shots.map((shot) =>
+        shot.reactorClipId === completed.shot.reactorClipId ? completed.shot : shot
+      ),
+      freezeFrame: frames.lastFrame,
+    });
+    void this.read(this.token, completed);
+  }
+
+  onReactorClipFailed(message = "Reactor 视频播放失败。") {
+    if (this.state.phase !== "playing" || !this.state.currentShot?.reactorClipId) return;
+    this.set({ phase: "error", error: message });
   }
 
   private async read(token: number, prepared: Prepared) {

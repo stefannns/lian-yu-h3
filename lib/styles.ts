@@ -36,9 +36,7 @@ export const STYLES: Record<StyleKey, StylePreset> = {
     label: "日系动画",
     hint: "手绘赛璐璐，柔光，少女漫的空气感",
     prompt:
-      "Japanese shoujo anime film: hand-drawn cel-shaded characters with crisp " +
-      "ink linework and flat shadow shapes, warm pastel palette, soft bloom and " +
-      "lens flare, delicate detailed painted backgrounds, gentle romantic lighting.",
+      "Japanese otome anime CG: refined adult proportions, crisp cel shading and ink lines, delicate background, warm romantic light; never childish or cartoonish.",
     still:
       "Rendered as a Japanese shoujo anime illustration: hand-drawn cel shading, " +
       "crisp ink linework, flat shadow shapes, warm pastel palette, soft bloom, " +
@@ -48,11 +46,7 @@ export const STYLES: Record<StyleKey, StylePreset> = {
     label: "恋爱科幻 3D",
     hint: "高精角色，冷暖电影光，亲密镜头感",
     prompt:
-      "Premium romantic science-fiction 3D game cinematic: refined stylized-realistic " +
-      "adult character proportions, elegant facial topology, luminous skin with subtle " +
-      "subsurface scattering, individually groomed silky hair, physically based tailored " +
-      "fabric and metal detail, restrained cool ambient shadows against soft warm key light, " +
-      "intimate shallow depth of field, delicate bloom and polished cinematic rendering.",
+      "Premium romantic sci-fi 3D game cinematic: refined adult face and proportions, luminous skin, groomed hair, detailed fabric, cool shadows, warm key light, shallow depth of field.",
     still:
       "Rendered as a premium romantic science-fiction 3D game still: refined " +
       "stylized-realistic adult proportions, luminous subsurface-scattered skin, groomed " +
@@ -63,10 +57,7 @@ export const STYLES: Record<StyleKey, StylePreset> = {
     label: "写实电影",
     hint: "真人电影感，自然光，胶片颗粒",
     prompt:
-      "Live-action cinematic film, photoreal: natural window light with soft " +
-      "falloff, true skin texture and fine hair detail, shallow depth of field on " +
-      "a fast prime lens, gentle anamorphic flare, subtle film grain, " +
-      "naturalistic muted colour grade.",
+      "Photoreal live-action cinema: attractive adult lead, natural light and skin texture, fine hair, shallow depth of field, subtle grain, muted film colour.",
     still:
       "A photoreal live-action film still: natural window light, true skin " +
       "texture and fine hair detail, shallow depth of field on a fast prime lens, " +

@@ -52,7 +52,7 @@ function directorHarness({ failOn = [], freeOnly = true, loadPortrait, paintOver
   const calls = { paints: [], videos: 0, intent: 0, typed: 0, reads: [], typedInputs: [] };
   const failures = new Set(failOn);
   const load = loader({
-    "./fal": {
+    "./visuals": {
       loadPortrait: loadPortrait || (async () => "portrait"),
       paintFrame: async (args) => {
         calls.paints.push(args);
@@ -60,7 +60,15 @@ function directorHarness({ failOn = [], freeOnly = true, loadPortrait, paintOver
         if (failures.has(number)) throw new Error("simulated image failure");
         return paintOverride ? paintOverride(args, number) : "frame-" + number;
       },
+    },
+    "./reactor": {
       filmShot: async () => { calls.videos++; throw new Error("Unexpected video request"); },
+      reactorMediaStream: async () => { throw new Error("Unexpected Reactor stream"); },
+      playReactorClip: async () => { throw new Error("Unexpected Reactor playback"); },
+    },
+    "@/lib/reactor": {
+      reactorMediaStream: async () => { throw new Error("Unexpected Reactor stream"); },
+      playReactorClip: async () => { throw new Error("Unexpected Reactor playback"); },
     },
     "./frames": { extractFrames: async () => { throw new Error("Unexpected video frames"); } },
     "./story": {
@@ -326,11 +334,120 @@ test("Gemini 3.8 story calls use low thinking and preserve JSON output budget", 
   assert.equal(routeCalls[0].generationConfig.temperature, undefined);
 });
 
+test("Reactor token route mints a server-side session-scoped FastH3 token", async () => {
+  const requests = [];
+  const load = loader({
+    "next/server": {
+      NextResponse: { json: (body, options) => ({ body, status: options?.status || 200, headers: options?.headers }) },
+    },
+  }, {
+    process: { env: { REACTOR_API_KEY: "test-reactor-key" } },
+    fetch: async (url, options) => {
+      requests.push({ url, options });
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ jwt: "short-lived-jwt", expires_at: 123456 }),
+      };
+    },
+  });
+  const response = await load("app/api/reactor/token/route.ts").POST();
+  assert.equal(response.status, 200);
+  assert.equal(response.body.jwt, "short-lived-jwt");
+  assert.equal(response.body.expiresAt, 123456);
+  assert.equal(requests[0].url, "https://api.reactor.inc/tokens");
+  assert.equal(requests[0].options.headers["Reactor-API-Key"], "test-reactor-key");
+  const grant = JSON.parse(requests[0].options.body).authorization_details[0];
+  assert.deepEqual(grant.resources.models.match, ["reactor/fast-h3"]);
+  assert.equal(grant.constraints.max_sessions, 1);
+  assert.doesNotMatch(JSON.stringify(response), /test-reactor-key/);
+});
+
+test("Reactor FastH3 enqueues a bounded prompt with an uploaded starting frame", async () => {
+  let instance;
+  class FakeReactor {
+    constructor(options) {
+      this.options = options;
+      this.status = "disconnected";
+      this.handlers = {};
+      this.commands = [];
+      instance = this;
+    }
+    on(event, handler) { (this.handlers[event] ||= []).push(handler); }
+    off(event, handler) { this.handlers[event] = (this.handlers[event] || []).filter(item => item !== handler); }
+    getStatus() { return this.status; }
+    async connect() { this.status = "ready"; }
+    async uploadFile(blob, options) {
+      this.upload = { blob, options };
+      return { uploadId: "upload-1", name: options.name, mimeType: blob.type, size: blob.size };
+    }
+    async sendCommand(command, data) {
+      this.commands.push({ command, data });
+      if (command !== "enqueue") return { type: command + "_accepted", data: {} };
+      const reply = { type: "clip_queued", data: { clip: { clip_id: "clip-1" } } };
+      queueMicrotask(() => {
+        for (const handler of this.handlers.message || []) {
+          handler({ type: "clip_generated", data: { clip: { clip_id: "clip-1" } } });
+        }
+      });
+      return reply;
+    }
+    getLastError() { return undefined; }
+    getTrackByName() { return undefined; }
+    async disconnect() { this.status = "disconnected"; }
+  }
+  const windowMock = {
+    setTimeout: (fn, ms) => setTimeout(fn, ms),
+    clearTimeout: id => clearTimeout(id),
+  };
+  const reactor = loader({
+    "@reactor-team/js-sdk": { Reactor: FakeReactor },
+    "./limits": { PROMPT_WARN_CHARS: 780 },
+  }, {
+    window: windowMock, Blob, Uint8Array, atob, queueMicrotask,
+    fetch: async () => ({
+      ok: true,
+      json: async () => ({ jwt: "jwt", expiresAt: Math.floor(Date.now() / 1000) + 3600 }),
+    }),
+  })("lib/reactor.ts");
+  const clip = await reactor.filmShot({
+    prompt: "x".repeat(900), seed: 7, beat: 2, duration: 5, resolution: "768P",
+    fromFrame: "data:image/jpeg;base64,aGVsbG8=",
+  });
+  assert.equal(clip.clipId, "clip-1");
+  assert.equal(instance.options.modelName, "reactor/fast-h3");
+  assert.equal(instance.upload.blob.type, "image/jpeg");
+  const enqueue = instance.commands.find(item => item.command === "enqueue").data;
+  assert.equal(enqueue.prompt.length, 780);
+  assert.equal(enqueue.seconds, 5.167);
+  assert.equal(enqueue.seed, 9);
+  assert.equal(enqueue.starting_frame.uploadId, "upload-1");
+});
+
+test("every style produces a complete Reactor video prompt below 800 characters", () => {
+  const story = loader()("lib/story.ts");
+  for (const style of ["anime", "cg3d", "real"]) {
+    const prompt = story.dress(
+      "The young man opens the balcony door, steps into the sea breeze, then turns and offers his hand while the curtains move behind him. ".repeat(4),
+      style,
+      false
+    );
+    assert.ok(prompt.length <= 780, `${style} prompt was ${prompt.length} characters`);
+    assert.match(prompt, /First-person POV/);
+    assert.match(prompt, /no spoken dialogue/);
+  }
+});
+
 test("free-only recovery renders both retry and free input without a video element", () => {
   const React = require("react");
   const { renderToStaticMarkup } = require("react-dom/server");
   const h = directorHarness();
-  const { Stage } = loader()("components/stage.tsx");
+  const { Stage } = loader({
+    "@/lib/reactor": {
+      reactorMediaStream: async () => { throw new Error("Unexpected Reactor stream"); },
+      playReactorClip: async () => { throw new Error("Unexpected Reactor playback"); },
+    },
+  })("components/stage.tsx");
   const html = renderToStaticMarkup(React.createElement(Stage, {
     state: { ...h.director.getSnapshot(), phase: "choosing", canRetryScene: true },
     onClipEnded() {}, onChoose() {}, onTyped() {}, onRetry() {},
@@ -704,7 +821,12 @@ test("filming state visibly explains that the next still is generating", () => {
   const React = require("react");
   const { renderToStaticMarkup } = require("react-dom/server");
   const h = directorHarness();
-  const { Stage } = loader()("components/stage.tsx");
+  const { Stage } = loader({
+    "@/lib/reactor": {
+      reactorMediaStream: async () => { throw new Error("Unexpected Reactor stream"); },
+      playReactorClip: async () => { throw new Error("Unexpected Reactor playback"); },
+    },
+  })("components/stage.tsx");
   const html = renderToStaticMarkup(React.createElement(Stage, {
     state: { ...h.director.getSnapshot(), phase: "filming", currentShot: {
       beat: 1, action: null, kind: "opening", prompt: "opening", still: true,

@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { DirectorState } from "@/lib/engine";
+import { playReactorClip, reactorMediaStream } from "@/lib/reactor";
 
 /**
  * The theater: the shot on screen, or a slow push-in on its frozen last
@@ -136,16 +137,83 @@ function Choices({
 export function Stage({
   state,
   onClipEnded,
+  onReactorClipEnded,
+  onReactorClipFailed,
   onChoose,
   onTyped,
   onRetry,
 }: {
   state: DirectorState;
   onClipEnded: () => void;
+  onReactorClipEnded: (frames: { lastFrame: string; strip: string[]; thumb: string }) => void;
+  onReactorClipFailed: (message?: string) => void;
   onChoose: (index: number) => void;
   onTyped: (text: string) => void;
   onRetry: () => void;
 }) {
+  const liveVideo = useRef<HTMLVideoElement>(null);
+  const [reactorMuted, setReactorMuted] = useState(false);
+  const reactorClipId = state.currentShot?.reactorClipId;
+
+  useEffect(() => {
+    if (!reactorClipId || state.currentShot?.still) return;
+    const video = liveVideo.current;
+    if (!video) return;
+    let cancelled = false;
+    let timer: number | null = null;
+    const samples: string[] = [];
+
+    const grab = (width: number, quality: number) => {
+      if (!video.videoWidth || !video.videoHeight || video.readyState < 2) return "";
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = Math.round(video.videoHeight * width / video.videoWidth);
+      const context = canvas.getContext("2d");
+      if (!context) return "";
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+      return canvas.toDataURL("image/jpeg", quality);
+    };
+
+    void (async () => {
+      try {
+        video.srcObject = await reactorMediaStream();
+        await video.play().catch(async () => {
+          video.muted = true;
+          setReactorMuted(true);
+          await video.play();
+        });
+        timer = window.setInterval(() => {
+          const frame = grab(512, 0.75);
+          if (frame) {
+            samples.push(frame);
+            if (samples.length > 10) samples.shift();
+          }
+        }, 900);
+        await playReactorClip(reactorClipId);
+        if (cancelled) return;
+        if (timer !== null) window.clearInterval(timer);
+        const finalSmall = grab(768, 0.8);
+        if (finalSmall) samples.push(finalSmall);
+        const lastFrame = grab(1344, 0.92);
+        const thumb = grab(168, 0.7);
+        if (!lastFrame || !thumb) throw new Error("Reactor clip ended without a readable frame.");
+        const middle = samples[Math.floor(samples.length / 2)];
+        const strip = [samples[0], middle, samples.at(-1)].filter(Boolean) as string[];
+        onReactorClipEnded({ lastFrame, strip, thumb });
+      } catch (cause) {
+        if (!cancelled) {
+          onReactorClipFailed(cause instanceof Error ? cause.message : "Reactor 视频播放失败。");
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      if (timer !== null) window.clearInterval(timer);
+      video.srcObject = null;
+    };
+  }, [reactorClipId, state.currentShot?.still, onReactorClipEnded, onReactorClipFailed]);
+
   // A painted beat has no <video> at all, so the freeze layer — which is
   // already mounted above the video and already does a slow push-in — simply
   // stays up and becomes the presentation. 无视频模式 needs no second code
@@ -173,13 +241,35 @@ export function Stage({
 
       <div className="film">
       {state.currentShot && !state.currentShot.still && (
-        <video
-          key={state.currentShot.videoUrl}
-          src={state.currentShot.videoUrl}
-          autoPlay
-          playsInline
-          onEnded={onClipEnded}
-        />
+        state.currentShot.reactorClipId
+          ? <video
+              ref={liveVideo}
+              key={state.currentShot.reactorClipId}
+              autoPlay
+              playsInline
+              muted={reactorMuted}
+            />
+          : <video
+              key={state.currentShot.videoUrl}
+              src={state.currentShot.videoUrl}
+              autoPlay
+              playsInline
+              onEnded={onClipEnded}
+            />
+      )}
+      {showVideo && state.currentShot?.reactorClipId && reactorMuted && (
+        <button
+          className="audio-unmute"
+          onClick={() => {
+            if (liveVideo.current) {
+              liveVideo.current.muted = false;
+              void liveVideo.current.play();
+            }
+            setReactorMuted(false);
+          }}
+        >
+          开启声音
+        </button>
       )}
       {state.freezeFrame && (
         <img

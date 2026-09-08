@@ -6,7 +6,7 @@ import { ImageGenError, generateImage, imageFailureMessage, toDataUri } from "@/
  *
  * paintFrame() runs in the browser and so cannot hold a key; this route is the
  * image equivalent of /api/llm. The model itself lives behind lib/imagegen.ts
- * — fal is video-only in this project, and nothing here knows or cares which
+ * — Reactor is video-only in this project, and nothing here knows or cares which
  * provider is configured.
  *
  * Caps are deliberate. Like /api/llm this endpoint is unauthenticated, so
@@ -68,8 +68,8 @@ export async function POST(request: NextRequest) {
           : undefined,
     });
     // A data URI, not a URL: the still is cropped on a browser canvas (a
-    // cross-origin source would taint it) and posted straight back to fal as a
-    // video reference, which accepts data URIs.
+    // cross-origin source would taint it) and uploaded to Reactor as a video
+    // starting frame.
     return NextResponse.json({ image: toDataUri(bytes), aspect });
   } catch (cause) {
     const status = cause instanceof ImageGenError ? cause.status : undefined;

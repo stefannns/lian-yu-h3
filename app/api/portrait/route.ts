@@ -31,8 +31,8 @@ import { DEFAULT_STYLE, isStyleKey, type StyleKey } from "@/lib/styles";
  * GET ?id=<id>&style=<style>&refresh=1  -> remake and overwrite
  *
  * The raw variant exists because the game needs the portrait two different
- * ways. The engine needs a data URI: it posts the bytes straight back to fal
- * as a reference image, so a URL would mean a second round trip and a CORS
+ * ways. The engine needs a data URI: it uploads the bytes to Reactor as a
+ * starting frame, so a URL would mean a second round trip and a CORS
  * problem. The UI needs a URL: an <img> cannot render a JSON body, and
  * inlining a 300KB base64 string into markup to show a 46px thumbnail is
  * wasteful in a way the browser cache would otherwise have solved for free.
@@ -138,8 +138,8 @@ export async function GET(request: NextRequest) {
   } catch (cause) {
     const message = cause instanceof Error ? cause.message : "unknown";
     console.error("[/api/portrait] failed:", message);
-    // Never fatal. Without a portrait the run falls back to image-to-video,
-    // which continues the frame but stops anchoring his face.
+    // Never fatal. A continuing clip can still use its previous last frame,
+    // though a cold start has weaker identity continuity.
     return NextResponse.json(
       { error: "Portrait request failed.", detail: message },
       { status: 502 }

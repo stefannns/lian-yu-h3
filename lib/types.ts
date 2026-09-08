@@ -71,6 +71,8 @@ export interface Shot {
   still: boolean;
   videoUrl: string;
   rawUrl: string;
+  /** Reactor queue id for a live FastH3 clip. */
+  reactorClipId?: string;
   /** Small first-frame thumb for the history strip. */
   thumb: string;
 }

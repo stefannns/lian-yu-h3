@@ -6,10 +6,8 @@ import { generateGemini } from "@/lib/gemini";
  * strict ALLOW/BLOCK, injection-resistant, deliberately permissive on
  * weird/dark/profane so the game stays fun.
  *
- * Runs on Gemini directly rather than through fal's LLM router. fal is now
- * strictly the video provider in this project — h3 and nothing else — so
- * routing a text classification through it was the last thing keeping a
- * second kind of dependency on that key.
+ * Runs on Gemini directly. Reactor is strictly the video provider in this
+ * project — FastH3 and nothing else — so text classification stays here.
  */
 
 /**

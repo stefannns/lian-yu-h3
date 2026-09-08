@@ -100,17 +100,10 @@ export function dress(action: string, style: StyleKey, still = false): string {
  */
 export function imageKey(args: { frame: boolean; portrait: boolean }): string {
   if (!args.portrait) return "";
-  // A cut has no frame to continue, so the portrait becomes Image 1 and the
-  // prompt has to say so — ref2v addresses its inputs positionally, and a
-  // prompt still talking about "Image 2" when only one image was sent leaves
-  // the model looking for something that is not there.
   if (!args.frame) {
-    return `Image 1 is the young man; he must look exactly like Image 1. `;
+    return "The uploaded starting frame is the young man; keep his identity in the new setting. ";
   }
-  return (
-    `Image 1 is the scene: continue from it exactly, same room, same light, ` +
-    `same camera. Image 2 is the young man; he must look exactly like Image 2. `
-  );
+  return "Continue the uploaded starting frame: same room, light, viewpoint and man. ";
 }
 
 const sharedRules = (him: Character, still = false) => `You write a first-person romantic story driven by the player's chosen activity.

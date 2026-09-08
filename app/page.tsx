@@ -44,6 +44,15 @@ export default function Page() {
   );
   const onSubmit = useCallback((wish: string) => void director.submitWish(wish), [director]);
   const onClipEnded = useCallback(() => director.onClipEnded(), [director]);
+  const onReactorClipEnded = useCallback(
+    (frames: { lastFrame: string; strip: string[]; thumb: string }) =>
+      director.onReactorClipEnded(frames),
+    [director]
+  );
+  const onReactorClipFailed = useCallback(
+    (message?: string) => director.onReactorClipFailed(message),
+    [director]
+  );
   const onChoose = useCallback((index: number) => director.choose(index), [director]);
   const onTyped = useCallback((text: string) => void director.submitTyped(text), [director]);
   const onRetry = useCallback(() => director.retryScene(), [director]);
@@ -102,6 +111,8 @@ export default function Page() {
     <Stage
       state={state}
       onClipEnded={onClipEnded}
+      onReactorClipEnded={onReactorClipEnded}
+      onReactorClipFailed={onReactorClipFailed}
       onChoose={onChoose}
       onTyped={onTyped}
       onRetry={onRetry}

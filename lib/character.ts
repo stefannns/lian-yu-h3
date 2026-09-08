@@ -2,12 +2,13 @@
  * 男主 — and the grammar every shot inherits.
  *
  * A 乙女游戏 lives or dies on whether he is recognisably the same person in
- * shot nine as in shot one. h3-max has no memory between calls: it sees a
- * prompt and its reference images, nothing else. So the whole identity
+ * shot nine as in shot one. FastH3 has no memory between clips: it sees a
+ * prompt and its starting frame, nothing else. So the whole identity
  * system is two things —
  *
- *   1. PORTRAIT   one still of him, cached per (character, style), which
- *                 rides EVERY shot as reference "Image 2". See /api/portrait.
+ *   1. PORTRAIT   one still of him, cached per (character, style), used as
+ *                 the starting frame whenever the story cuts somewhere new.
+ *                 Continuing clips start from the previous clip's last frame.
  *   2. DESCRIPTOR the same English sentence, verbatim, in every prompt that
  *                 names him — so the words and the picture never disagree.
  *
@@ -172,9 +173,7 @@ export function restylePrompt(_him: Character, style: StyleKey): string {
  * reverts to a neutral observer angle.
  */
 export const POV_LEAD =
-  "First-person POV through her own eyes, camera at her eye height, the frame " +
-  "exactly what she sees — her own hands or the near edge of what she is " +
-  "touching sit low in the foreground.";
+  "First-person POV through her eyes at eye height; her hands may sit low in the foreground.";
 
 /**
  * After the action. Only the failures actually observed on screen, stated as
@@ -182,10 +181,7 @@ export const POV_LEAD =
  * foreground corner, and it pads a quiet domestic frame with extras.
  */
 export const POV_GUARD =
-  "Never cut to a third-person or over-the-shoulder angle; never show her face, " +
-  "hair, head, shoulder or body, and never her reflection in a mirror, window " +
-  "or screen. He is the only person in the film — nobody else anywhere, not in " +
-  "the background, a doorway, a window or a photograph.";
+  "Only the handsome adult man appears. Never show her face, head, body or reflection; no third-person angle or background people.";
 
 /**
  * MiniMax camera commands, in square brackets, up to three per bracket for a
@@ -204,15 +200,14 @@ export const SHOT_TAGS = true;
 export const DEFAULT_SHOT_TAG = "[Static shot]";
 
 /**
- * h3-max generates its own soundtrack, and with dialogue unspecified it
+ * FastH3 generates its own soundtrack, and with dialogue unspecified it
  * babbles pseudo-language that sounds like neither Chinese nor Japanese and
  * wrecks a romantic beat. So every shot declares its sound and his lines are
  * delivered as on-screen 中文 text instead — which is the visual-novel
  * convention this genre already uses.
  */
 export const SOUND =
-  "Sound: ambient room audio and soft piano only; any voice is wordless, with " +
-  "no spoken dialogue.";
+  "Ambient sound and soft piano; wordless voice, no spoken dialogue.";
 
 /** Where the game opens, in English, for the painter and the storyteller. */
 export const OPENING_SCENE =

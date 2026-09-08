@@ -1,7 +1,7 @@
 # 醒来的时候，他在
 
 一个第一人称乙女游戏。没有写好的剧本 —— 默认由 Gemini / Nano Banana 现场生成
-静帧故事，也可以打开视频模式交给 [fal](https://fal.ai) 上的 **MiniMax H3 Max**。
+静帧故事，也可以打开视频模式交给 [Reactor FastH3](https://www.reactor.inc/models/fast-h3/api)。
 
 睁眼之前，你先挑一种画风，再写下今天想和他做点什么。你写下的，就是这一天真正会发生的事。
 
@@ -29,19 +29,18 @@
 
 ## 他为什么一直是他
 
-视频模型没有记忆。h3 每次调用只看得见这一次的提示词和这一次的参考图，
+视频模型没有记忆。FastH3 每段只看得见这一次的提示词和起始帧，
 所以"同一个人"必须每一帧都重新证明一次。这件事由两样东西撑着：
 
 1. **一张立绘**。`/api/portrait?style=…` 每种画风第一次用到时画一张，存到
    `.cache/portrait-<画风>.jpg`，之后每一局都从磁盘读同一张。它作为
-   `reference-to-video` 的 **Image 2** 参与每一个镜头。三种画风用**同一个
-   随机种子**，所以出来的是同一个人的三种画法，而不是三个人。
+   新地点的镜头以这张立绘为 `starting_frame`。三种画风各自保存对应立绘。
 2. **同一句英文外貌描述**，一字不差地写进每一个提到他的提示词里 ——
    让画面和文字永远不打架。
 
-用的是 `minimax/h3-max/reference-to-video` 而不是 `image-to-video`：
-ref2v 是"从参考图构图"而不是"从关键帧续拍"，握房间握得松一点，
-但握人握得紧得多。在恋爱游戏里，沙发挪了位置可以原谅，脸变了不行。
+同一地点的下一段以刚播完视频的真实末帧作为 `starting_frame`；切到新地点时
+改用男主立绘。Reactor 会话负责生成队列和实时 WebRTC 播放，浏览器在播放期间
+采样首、中、末帧，让 Gemini 仍然根据实际画面续写。
 
 ## 提示词是怎么写的
 
@@ -55,7 +54,8 @@ ref2v 是"从参考图构图"而不是"从关键帧续拍"，握房间握得松�
   "leans in and rests his forehead against hers" 比 "He is leaning in" 强得多。
 - **一个镜头拆成两三拍**，用 first / then / as 连起来。
   只描述一个"状态"，模型没有东西可动；给它两拍，它才拍得出一个镜头。
-- **40~80 词。** 上限 480 字符，整条提示词上限 1900（H3 大约 2000 就整条拒绝）。
+- **40~80 词。** 动作上限 480 字符，整条提示词控制在 780 字符以内，
+  留出 Reactor FastH3 800 字符硬上限所需的余量。
 - **说环境怎么反应** —— 被子被带动、光在他脸上移动、热气偏了。
   H3 靠这些决定东西怎么动。
 - **方括号镜头指令**：`[Static shot]` `[Push in]` `[Pan left]` `[Tilt down]`
@@ -114,18 +114,19 @@ npm run dev
 
 | 变量 | 用途 |
 | --- | --- |
-| `FAL_KEY` | **只有 h3-max 视频**。别的什么都不走这个键 |
+| `REACTOR_API_KEY` | Reactor FastH3 视频；只在服务端换取短期 session token |
 | `GEMINI_API_KEY` | 讲述者、愿望改写、选角、审核（文本，AI Studio key 够用） |
 | `GOOGLE_IMAGE_API_KEY` | 所有静帧。要开了账单、放开了 Vertex AI API 的 key |
 | `GOOGLE_CLOUD_PROJECT` | 填了走 Vertex，留空走 Gemini API |
 | `IMAGE_PROVIDER` | 用哪个图像模型。不填的话，见下 |
 
-全部只留在服务端 —— `FAL_KEY` 走 `@fal-ai/server-proxy`，
-视频走同源的 `/api/media` 代理，这样 `<canvas>` 抽帧不会被 CORS 挡掉。
+`REACTOR_API_KEY` 只存在于本机 `.env.local`。浏览器通过
+`/api/reactor/token` 获得仅限 `reactor/fast-h3`、最多一个会话的短期 token，
+不会接触 API key。
 
 ## 图像模型是可换的
 
-**fal 在这个项目里只负责视频。** 所有静帧 —— 立绘、开场画面、无视频模式的每一幕 ——
+**Reactor 只负责 FastH3 视频。** 所有静帧 —— 立绘、开场画面、无视频模式的每一幕 ——
 都从 [`lib/imagegen.ts`](lib/imagegen.ts) 这一个口子出去。以前它们是 nano-banana，
 而且散在三个路由里各写各的 URL、重试和超时，"换个图像模型"意味着改三个文件
 还得指望它们保持一致。现在换模型就是改这一个文件。
@@ -142,7 +143,7 @@ npm run dev
 
 ### `google` —— nano banana（默认，用 API key）
 
-`gemini-3.1-flash-image`（Nano Banana 2），走 Google 自己的平台，不经过 fal。
+`gemini-3.1-flash-image`（Nano Banana 2），走 Google 自己的平台，不经过 Reactor。
 
 Vertex 和 Gemini API **请求体完全一样**，只有 URL 和鉴权头不同，所以代码里也只分这两处：
 
@@ -174,7 +175,7 @@ Vertex 和 Gemini API **请求体完全一样**，只有 URL 和鉴权头不同�
 ### 选哪个
 
 `IMAGE_PROVIDER` 不填时：有 Google 的 key 就走 `google`，
-没有就报一个说清楚该干什么的错，**绝不会退回 fal**。
+没有就报一个说清楚该干什么的错，**绝不会退回视频服务**。
 
 要接新的：写一个 `(ImageRequest) => Buffer` 的函数，加进 `PROVIDERS`，
 设一下 `IMAGE_PROVIDER`。就这些。
@@ -217,14 +218,13 @@ Vertex 和 Gemini API **请求体完全一样**，只有 URL 和鉴权头不同�
 - **便宜大约十倍**，而且几秒就到，不是几分钟。
 - 讲述者读的是那一张静帧而不是三帧，其余一模一样 —— 它本来就被要求
   "只描述你看得见的东西"，静帧同样成立。
-- **可以中途随时切**。静帧和视频最后都只留下一帧，而下一幕只继承那一帧，
-  所以两种模式能无缝接在一起，不用重开。
+- 在愿望提交前选择本局使用静帧还是视频。
 
 想调剧本、调选项、调他的性格的时候用这个模式，别烧视频钱。
 
 ## 花费
 
-每一幕 = 1 次 h3-max（10 秒 768P）+ 1 次 Gemini。
+视频模式每一幕 = 1 次 Reactor FastH3（约 10 秒）+ 1 次 Gemini。
 无视频模式下 = 1 次图像生成 + 1 次 Gemini。
 开场额外一次图像生成；立绘每种画风只做一次，之后永久复用。
 
@@ -242,10 +242,9 @@ components/creator.tsx  选角界面
 lib/styles.ts      三种画风。每一个提示词的结尾
 lib/story.ts       讲述者：读画面 -> 中文旁白 + 自动推进 / 两个关键选项 / 自由回答
 lib/engine.ts      导演：整个循环、预生成、状态快照
-lib/fal.ts         h3 客户端。fal 在这里只有视频
+lib/reactor.ts     Reactor FastH3 会话、队列、起始帧上传与 WebRTC 播放
+lib/visuals.ts     浏览器端静帧与立绘读取工具
 lib/imagegen.ts    图像模型的唯一出口。换模型改这一个文件
-lib/frames.ts      从播完的片子里抽首帧/中帧/尾帧
 app/api/portrait   立绘：每种画风从原图编辑一次，存磁盘，之后永远复用
-app/api/fal/proxy  FAL_KEY 不进浏览器
-app/api/media      同源视频代理，为了抽帧不被 CORS 挡
+app/api/reactor/token  用服务端 REACTOR_API_KEY 换取受限短期 token
 ```
