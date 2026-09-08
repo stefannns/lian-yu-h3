@@ -24,14 +24,11 @@ import { DEFAULT_STYLE, isStyleKey } from "@/lib/styles";
  * is written FROM it, which is the only way an uploaded face can also exist
  * in the text half of the pipeline.
  *
- *   POST { mode: "write",  name?, idea, art? } -> Gemini writes him, then paints him
+ *   POST { mode: "write",  name?, idea }       -> Gemini writes him, then paints him
  *   POST { mode: "upload", name?, image }      -> the image is his, Gemini reads it
  *
- * `art: false` — or any failure to paint — still creates him, as WORDS ONLY.
- * The descriptor is the expensive half and the half the writing needs; a
- * portrait is what the video needs. So a character can be cast and played in
- * 无视频模式 with nothing painted, and art added later via
- * /api/portrait?refresh=1.
+ * Both video and still-image play require a portrait. A failed paint returns
+ * an error instead of creating an incomplete character for approval.
  *
  * The files live under .cache/cast/<id>/ only as the current run's private
  * continuity cache: the server needs the descriptor and source picture for
@@ -144,7 +141,6 @@ export async function POST(request: NextRequest) {
     idea?: unknown;
     image?: unknown;
     style?: unknown;
-    art?: unknown;
   };
   try {
     body = await request.json();
@@ -153,16 +149,12 @@ export async function POST(request: NextRequest) {
   }
 
   const mode = body.mode === "upload" ? "upload" : "write";
-  // 无视频模式 can start on words alone. The client asks for this explicitly,
-  // and a failed paint falls back to it anyway — see below.
-  const wantsArt = body.art !== false;
   const givenName = str(body.name, MAX_NAME_CHARS);
   // The look he is first painted in. Every other look is later edited from
   // this same picture, so this one call decides what he actually looks like.
   const asked = body.style;
   const style = isStyleKey(asked) ? asked : DEFAULT_STYLE;
 
-  let artError: string | null = null;
   try {
     let written: Record<string, unknown>;
     let source: string;
@@ -196,26 +188,15 @@ export async function POST(request: NextRequest) {
       });
       const descriptor = str(written.descriptor, 300);
       if (!descriptor) throw new Error("no descriptor written");
-      if (!wantsArt) {
-        source = "";
-      } else {
-        try {
-          // Painted in the run's look straight away, so what the player
-          // approves on the result card is the actual anchor, not a stand-in.
-          source = await paint(
-            portraitPrompt({ id: "", name: "", descriptor, temperament: "" }, style)
-          );
-        } catch (cause) {
-          // A failed paint must NOT lose the character. The words are the
-          // expensive part and they are already written; art can be added
-          // later with /api/portrait?refresh=1 once the provider works.
-          console.error(
-            "[/api/cast] paint failed, keeping him as words only:",
-            cause instanceof Error ? cause.message : cause
-          );
-          artError = cause instanceof Error ? cause.message : "image generation failed";
-          source = "";
-        }
+      try {
+        source = await paint(
+          portraitPrompt({ id: "", name: "", descriptor, temperament: "" }, style)
+        );
+      } catch {
+        return NextResponse.json(
+          { error: "立绘没能画出来，请再试一次。" },
+          { status: 502 }
+        );
       }
     }
 
@@ -226,7 +207,7 @@ export async function POST(request: NextRequest) {
       descriptor: str(written.descriptor, 300),
       temperament: str(written.temperament, 400),
       fromUpload: mode === "upload",
-      hasArt: Boolean(source),
+      hasArt: true,
     };
     if (!him.descriptor) {
       return NextResponse.json(
@@ -235,24 +216,20 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const bytes = dataUriToBuffer(source);
+    if (!bytes?.length) {
+      return NextResponse.json({ error: "立绘读不出来，请再试一次。" }, { status: 502 });
+    }
     const dir = path.join(CAST_DIR, him.id);
     await mkdir(dir, { recursive: true });
+    await writeFile(path.join(dir, "source.jpg"), bytes);
+    // Written characters already have a portrait in the selected look.
+    if (mode === "write") {
+      await writeFile(path.join(dir, `portrait-${style}.jpg`), bytes);
+    }
     await writeFile(path.join(dir, "character.json"), JSON.stringify(him, null, 2));
 
-    if (source) {
-      const bytes = dataUriToBuffer(source);
-      if (!bytes) {
-        return NextResponse.json({ error: "图片读不出来。" }, { status: 400 });
-      }
-      await writeFile(path.join(dir, "source.jpg"), bytes);
-      // A written character was already painted in this look, so seed that
-      // look's cache and save /api/portrait a redundant call on first run.
-      if (mode === "write") {
-        await writeFile(path.join(dir, `portrait-${style}.jpg`), bytes);
-      }
-    }
-
-    return NextResponse.json({ him, portrait: source || null, artError });
+    return NextResponse.json({ him, portrait: source });
   } catch (cause) {
     const message = cause instanceof Error ? cause.message : "unknown";
     console.error("[/api/cast] failed:", message);

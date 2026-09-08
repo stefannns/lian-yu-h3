@@ -76,7 +76,6 @@ export default function Page() {
         {creating && (
           <Creator
             style={state.style}
-            videoOff={state.videoOff}
             onPick={onPickHim}
             onClose={() => setCreating(false)}
           />

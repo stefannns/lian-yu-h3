@@ -25,13 +25,10 @@ import type { StyleKey } from "@/lib/styles";
  */
 export function Creator({
   style,
-  videoOff,
   onPick,
   onClose,
 }: {
   style: StyleKey;
-  /** 静帧模式可只用文字角色开始；立绘只是额外的人物连续性参考。 */
-  videoOff: boolean;
   onPick: (him: Character) => void;
   onClose: () => void;
 }) {
@@ -41,13 +38,10 @@ export function Creator({
   const [upload, setUpload] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Art costs a call. A text-only character is still playable in 静帧模式;
-  // a portrait simply gives Gemini an additional identity reference.
-  const [art, setArt] = useState(!videoOff);
+  const [portraitLoaded, setPortraitLoaded] = useState(false);
   const [made, setMade] = useState<{
     him: Character;
-    portrait: string | null;
-    artError?: string | null;
+    portrait: string;
   } | null>(null);
   const file = useRef<HTMLInputElement>(null);
 
@@ -86,20 +80,20 @@ export function Creator({
         body: JSON.stringify(
           mode === "upload"
             ? { mode: "upload", name, image: upload, style }
-            : { mode: "write", name, idea, style, art }
+            : { mode: "write", name, idea, style }
         ),
       });
       const body = (await response.json()) as {
         him?: Character;
         portrait?: string | null;
-        artError?: string | null;
         error?: string;
       };
-      if (!response.ok || !body.him) {
-        setError(body.error ?? "没能把他做出来。");
+      if (!response.ok || !body.him || !body.portrait || !body.him.hasArt) {
+        setError(body.error ?? "立绘没能准备好，请再试一次。");
         return;
       }
-      setMade({ him: body.him, portrait: body.portrait ?? null, artError: body.artError });
+      setPortraitLoaded(false);
+      setMade({ him: body.him, portrait: body.portrait });
     } catch {
       setError("没能把他做出来。");
     } finally {
@@ -121,25 +115,26 @@ export function Creator({
 
         {made ? (
           <div className="made">
-            {made.portrait ? (
-              <img className="made-art" src={made.portrait} alt="" />
-            ) : (
-              <div className="made-art blank">{made.him.name.slice(0, 1)}</div>
-            )}
+            <img
+              className="made-art"
+              src={made.portrait}
+              alt="他的立绘"
+              onLoad={() => setPortraitLoaded(true)}
+              onError={() => {
+                setPortraitLoaded(false);
+                setError("立绘加载失败，请重新创建。");
+              }}
+            />
             <div className="made-body">
               <p className="made-name">{made.him.name}</p>
               <p className="made-desc">{made.him.descriptor}</p>
-              {!made.portrait && (
-                <p className="made-note">
-                  {made.artError
-                    ? "立绘没画出来，但他已经存下了 —— 文字齐了就能开始。"
-                    : "文字版。无视频模式下够用，之后随时可以补立绘。"}
-                </p>
-              )}
+              {error && <p className="notice">{error}</p>}
               <div className="made-actions">
                 <button
                   className="btn"
+                  disabled={!portraitLoaded}
                   onClick={() => {
+                    if (!portraitLoaded) return;
                     onPick(made.him);
                     onClose();
                   }}
@@ -150,6 +145,8 @@ export function Creator({
                   className="ghost"
                   onClick={() => {
                     setMade(null);
+                    setPortraitLoaded(false);
+                    setError(null);
                     setUpload(null);
                   }}
                 >
@@ -228,21 +225,6 @@ export function Creator({
               </div>
             )}
 
-            {mode === "write" && (
-              <label className="art-toggle">
-                <input
-                  type="checkbox"
-                  checked={art}
-                  onChange={(event) => setArt(event.target.checked)}
-                  disabled={busy}
-                />
-                <span>
-                  顺便画一张立绘
-                  <em>静帧和视频都会拿它保持像同一个人。不画也能开始。</em>
-                </span>
-              </label>
-            )}
-
             <input
               className="creator-name"
               value={name}
@@ -259,16 +241,12 @@ export function Creator({
                 ? "正 在 做 他"
                 : mode === "upload"
                   ? "就 用 这 张"
-                  : art
-                    ? "做 出 来"
-                    : "写 出 来"}
+                  : "做 出 来"}
             </button>
             <p className="hint" style={{ textAlign: "center", marginTop: 10 }}>
               {mode === "upload"
-                ? "一次 Gemini 读图，免费"
-                : art
-                  ? "一次 Gemini + 一次 nano-banana，约 $0.04"
-                  : "一次 Gemini，免费"}
+                ? "以这张图作为他的立绘，保留原本的样子"
+                : "会为他生成一张立绘，确认后开始故事"}
             </p>
           </>
         )}
