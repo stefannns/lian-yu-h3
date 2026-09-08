@@ -5,6 +5,7 @@ import { openingShotPrompt, type Character } from "@/lib/character";
 import { dress, tellNext, writeIntentShot } from "@/lib/story";
 import { DEFAULT_STYLE, isStyleKey } from "@/lib/styles";
 import type { Beat, Choice } from "@/lib/types";
+import { callGeminiText } from "@/lib/server-llm";
 
 /**
  * 剧本试跑 — the whole writing layer, with no picture at all.
@@ -16,7 +17,7 @@ import type { Beat, Choice } from "@/lib/types";
  * WHAT IT TESTS
  *   the wish -> shot prompt writer
  *   the storyteller's 中文 narration and his lines
- *   whether the two cards actually pull in opposite directions
+ *   whether each beat should auto-advance, offer two meaningful cards, or wait for free input
  *   the English shot prompts — the part the player never sees and the part
  *     that decides whether the film is any good
  *
@@ -28,8 +29,9 @@ import type { Beat, Choice } from "@/lib/types";
  * words and the picture agree, which is the failure mode this game actually
  * has.
  *
- * Choices are taken by index, so a run is reproducible: [0,1,0] always walks
- * the same path.
+ * Choice beats are taken by index, so a run is reproducible. An auto beat
+ * advances on its continuation; a free-input beat ends the dry run and says
+ * that it is waiting for the player.
  */
 
 const CAST_DIR = path.join(process.cwd(), ".cache", "cast");
@@ -97,7 +99,7 @@ export async function POST(request: NextRequest) {
   });
 
   // Beat 1 — the wish becomes a shot.
-  const intent: Choice | null = await writeIntentShot(wish, style, him);
+  const intent: Choice | null = await writeIntentShot(wish, style, him, false, false, callGeminiText);
   if (!intent) {
     return NextResponse.json({ error: "the wish writer failed" }, { status: 502 });
   }
@@ -111,8 +113,12 @@ export async function POST(request: NextRequest) {
 
   // Then the loop: read (frameless) -> offer -> take a pick -> film.
   let memory = "";
-  let attempted = intent.label;
+  let attempted = wish;
   let offered: string[] = [];
+  let scene = "";
+  let decisions: string[] = [];
+  let automaticBeats = 0;
+  let playerLed = true;
   for (let n = 2; n <= beats + 1; n++) {
     const read: Beat | null = await tellNext({
       frames: [],
@@ -122,16 +128,44 @@ export async function POST(request: NextRequest) {
       beat: n,
       style,
       him,
+      wish,
+      scene,
+      decisions,
+      automaticBeats,
+      playerLed,
+      call: callGeminiText,
     });
     if (!read) {
       script.push({ beat: n, kind: "error", error: "the storyteller failed" });
       break;
     }
     memory = read.memory || memory;
+    scene = read.scene || scene;
     offered = [...offered.slice(-6), ...read.choices.map((c) => c.label)];
 
+    if (read.interaction === "free") {
+      script.push({
+        beat: n,
+        kind: "beat",
+        scene: read.scene,
+        narration: read.narration,
+        line: read.line,
+        memory: read.memory,
+        interaction: "free",
+        choices: [],
+        awaiting: "player_free_input",
+      });
+      break;
+    }
+
     const index = picks[n - 2] === 1 ? 1 : 0;
-    const taken = read.choices[index] ?? read.choices[0];
+    const taken = read.interaction === "auto"
+      ? read.continuation
+      : read.choices[index] ?? read.choices[0];
+    if (!taken) {
+      script.push({ beat: n, kind: "error", error: "story beat has no next action" });
+      break;
+    }
     script.push({
       beat: n,
       kind: "beat",
@@ -139,13 +173,22 @@ export async function POST(request: NextRequest) {
       narration: read.narration,
       line: read.line,
       memory: read.memory,
+      interaction: read.interaction,
       choices: read.choices,
-      took: index,
+      took: read.interaction === "choices" ? index : null,
       label: taken.label,
       prompt: taken.prompt,
       cut: taken.cut === true,
     });
     attempted = taken.label;
+    if (read.interaction === "auto") {
+      automaticBeats += 1;
+      playerLed = false;
+    } else {
+      automaticBeats = 0;
+      playerLed = true;
+      decisions = [...decisions, taken.label].slice(-20);
+    }
   }
 
   return NextResponse.json({ him: { name: him.name, descriptor: him.descriptor }, style, wish, script });

@@ -77,7 +77,9 @@ function directorHarness({ failOn = [], freeOnly = true, loadPortrait, paintOver
         if (tellOverride) return tellOverride(args, calls.reads.length);
         return {
           scene: "current scene", narration: "他看着你。", line: null,
-          memory: "completed scene", moved: false, freeOnly, choices: freeOnly ? [] : choices,
+          memory: "completed scene", moved: false,
+          interaction: freeOnly ? "free" : "choices", freeOnly,
+          choices: freeOnly ? [] : choices, continuation: null,
         };
       },
     },
@@ -280,6 +282,48 @@ test("Vertex authentication failure never falls back to an API key", async () =>
   assert.equal(h.calls.delays.length, 0);
 });
 
+test("Gemini 3.8 story calls use low thinking and preserve JSON output budget", async () => {
+  const directCalls = [];
+  const direct = loader({
+    "./gemini": {
+      generateGemini: async args => {
+        directCalls.push(args);
+        return {
+          ok: true,
+          json: async () => ({ candidates: [{ content: { parts: [{ text: '{"ok":true}' }] } }] }),
+        };
+      },
+    },
+  }, { process: { env: {} } })("lib/server-llm.ts");
+  assert.equal(await direct.callGeminiText({
+    prompt: "write JSON", model: "gemini-3.8-flash", maxTokens: 800,
+    temperature: 0.9, json: true,
+  }), '{"ok":true}');
+  assert.equal(directCalls[0].generationConfig.thinkingConfig.thinkingLevel, "LOW");
+  assert.equal(directCalls[0].generationConfig.temperature, undefined);
+  assert.equal(directCalls[0].generationConfig.maxOutputTokens, 800);
+
+  const routeCalls = [];
+  const routeLoad = loader({
+    "next/server": { NextResponse: { json: (body, options) => ({ body, status: options?.status || 200 }) } },
+    "@/lib/gemini": {
+      generateGemini: async args => {
+        routeCalls.push(args);
+        return {
+          ok: true,
+          json: async () => ({ candidates: [{ content: { parts: [{ text: '{"ok":true}' }] } }] }),
+        };
+      },
+    },
+  }, { process: { env: {} } });
+  const response = await routeLoad("app/api/llm/route.ts").POST({
+    json: async () => ({ prompt: "write JSON", model: "gemini-3.8-flash", maxTokens: 800, temperature: 0.9, json: true }),
+  });
+  assert.equal(response.status, 200);
+  assert.equal(routeCalls[0].generationConfig.thinkingConfig.thinkingLevel, "LOW");
+  assert.equal(routeCalls[0].generationConfig.temperature, undefined);
+});
+
 test("free-only recovery renders both retry and free input without a video element", () => {
   const React = require("react");
   const { renderToStaticMarkup } = require("react-dom/server");
@@ -386,7 +430,7 @@ test("cake pacing prompt asks for concrete choices and still prompts are standal
     "./llm": {
       llmCall: async args => {
         calls.push(args);
-        if (args.prompt.includes("PLAYER JUST TRIED")) {
+        if (args.prompt.includes("CAUSE OF THE CURRENT SCENE")) {
           return JSON.stringify({
             scene: "A cake workspace", narration: "他把模具放到你面前。", line: "想做哪一种？",
             memory: "They decide which cake to make.", moved: false, freeOnly: false,
@@ -502,6 +546,100 @@ test("the first generated-scene title preserves the player's own wish", async ()
   assert.equal(typeof releaseIntent, "function");
   releaseIntent();
   await settle();
+});
+
+test("storyteller can auto-advance an unimportant beat without offering cards", async () => {
+  const calls = [];
+  const story = loader({
+    "./llm": {
+      llmCall: async args => {
+        calls.push(args);
+        return JSON.stringify({
+          scene: "The cake batter is ready beside the oven.",
+          narration: "面糊已经拌匀，他把模具稳稳托在手中。",
+          line: "现在要不要把它送进烤箱？",
+          memory: "They chose chocolate chiffon and finished mixing the batter.",
+          moved: false,
+          interaction: "auto",
+          choices: [],
+          continuation: {
+            label: "送蛋糕进烤箱",
+            prompt: "A complete kitchen scene as he slides the filled cake tin into the warm oven.",
+            cut: false,
+          },
+        });
+      },
+    },
+  })("lib/story.ts");
+  const beat = await story.tellNext({
+    frames: ["cake-still"], memory: "", attempted: "拌好面糊", previousLabels: [],
+    beat: 3, style: "anime", him, wish: "一起做蛋糕", still: true, automaticBeats: 1,
+  });
+  assert.equal(beat.interaction, "auto");
+  assert.equal(beat.freeOnly, false);
+  assert.equal(beat.choices.length, 0);
+  assert.equal(beat.continuation.label, "送蛋糕进烤箱");
+  assert.equal(beat.line, null);
+  assert.match(calls[0].system, /Never manufacture a choice/);
+  assert.match(calls[0].system, /which bowl to pick up/);
+  assert.match(calls[0].prompt, /STORY-LED BEATS SINCE HER LAST INPUT: 1/);
+  assert.equal(calls[0].model, "gemini-3.8-flash");
+});
+
+test("storyteller can reserve a personal question for free input", async () => {
+  const story = loader({
+    "./llm": {
+      llmCall: async () => JSON.stringify({
+        scene: "The finished cake waits for its inscription.",
+        narration: "奶油已经抹平，他把裱花笔递到你面前。",
+        line: "最后想在上面写什么？",
+        memory: "The cake is finished except for the personal inscription.",
+        moved: false,
+        interaction: "free",
+        choices: [],
+        continuation: null,
+      }),
+    },
+  })("lib/story.ts");
+  const beat = await story.tellNext({
+    frames: ["cake-still"], memory: "", attempted: "装饰蛋糕", previousLabels: [],
+    beat: 5, style: "anime", him, wish: "一起做蛋糕", still: true,
+  });
+  assert.equal(beat.interaction, "free");
+  assert.equal(beat.freeOnly, true);
+  assert.equal(beat.choices.length, 0);
+  assert.equal(beat.continuation, null);
+  assert.equal(beat.line, "最后想在上面写什么？");
+});
+
+test("director executes story-led continuation and stops at the next free question", async () => {
+  const freeBeat = {
+    scene: "finished cake", narration: "蛋糕已经做好。", line: "想在上面写什么？",
+    memory: "The cake is ready for an inscription.", moved: false,
+    interaction: "free", freeOnly: true, choices: [], continuation: null,
+  };
+  const autoBeat = {
+    scene: "cake batter", narration: "他把拌好的面糊倒进模具。", line: null,
+    memory: "The batter is ready to bake.", moved: false,
+    interaction: "auto", freeOnly: false, choices: [],
+    continuation: { label: "烤好蛋糕", prompt: "finished cake after baking", cut: true },
+  };
+  const h = directorHarness({
+    freeOnly: true,
+    tellOverride: (_, number) => number === 2 ? autoBeat : freeBeat,
+  });
+  await h.director.submitWish("一起做蛋糕");
+  await settle();
+  h.director.onClipEnded();
+  await settle();
+  const state = h.director.getSnapshot();
+  assert.deepEqual(Array.from(state.shots, shot => shot.kind), ["opening", "intent", "auto"]);
+  assert.equal(state.phase, "choosing");
+  assert.equal(state.choices.length, 0);
+  assert.equal(state.line, "想在上面写什么？");
+  assert.equal(h.calls.paints.length, 3);
+  assert.match(h.calls.paints[2].prompt, /finished cake after baking/);
+  assert.equal(h.calls.reads.at(-1).automaticBeats, 1);
 });
 
 test("filming state visibly explains that the next still is generating", () => {

@@ -42,17 +42,21 @@ export interface Beat {
   memory: string;
   /** The location changed this shot. */
   moved: boolean;
+  /** The storyteller decides whether this beat advances or waits for her. */
+  interaction: "auto" | "choices" | "free";
   /** True when this moment asks for her own words, with no preset cards. */
   freeOnly: boolean;
-  /** The two next moves, unless freeOnly is true — see CHOICE_COUNT in lib/story.ts. */
+  /** The two meaningful next moves when interaction is choices. */
   choices: Choice[];
+  /** The next story-led shot when no player decision is needed. */
+  continuation: Choice | null;
 }
 
 export interface Shot {
   beat: number;
-  /** What the player did to cause this shot — 中文, or null for the opening. */
+  /** What caused this shot — player action or story-led progress; null for opening. */
   action: string | null;
-  kind: "opening" | "intent" | "choice" | "typed";
+  kind: "opening" | "intent" | "choice" | "typed" | "auto";
   /** The English prompt that filmed it. Kept for the log. */
   prompt: string;
   /**

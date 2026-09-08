@@ -7,7 +7,7 @@
  *          │                          │
  *          ▼                          ▼
  *   the wish becomes a shot     scene one plays
- *          └──► films during that playback ──► plays ──► 二选一 ──► loop
+ *          └──► films during that playback ──► story decides: continue / ask ──► loop
  *
  * The whole design is one idea, inherited from LAST FRAME and narrowed to a
  * single branch: THE WAIT IS ALWAYS SOMEONE ELSE'S TIME. The player typing
@@ -143,6 +143,8 @@ export class Director {
   private memory = "";
   private wish = "";
   private decisions: string[] = [];
+  /** Story-led beats since the player's last choice or free answer. */
+  private automaticBeats = 0;
   /** Latest scene ground truth, for the free-text writer. */
   private scene = "";
   /** Labels already offered, so nothing is reoffered. */
@@ -547,6 +549,7 @@ export class Director {
     this.memory = "";
     this.wish = "";
     this.decisions = [];
+    this.automaticBeats = 0;
     this.scene = "";
     this.offered = [];
     this.canned = null;
@@ -694,7 +697,8 @@ export class Director {
     const prepared = await this.generate(token, args);
     if (token !== this.token) return;
     if (!prepared) {
-      // Empty choices are a valid free-input scene, not a terminal failure.
+      // Empty choices are valid for free-input and story-led scenes. On a
+      // failed generation, retry remains available and free input is a way out.
       this.retryRequest = args;
       this.set({
         phase: "choosing",
@@ -719,6 +723,9 @@ export class Director {
     this.retryRead = null;
     if (prepared.shot.kind === "choice" || prepared.shot.kind === "typed") {
       this.decisions = [...this.decisions, prepared.attempted].slice(-20);
+      this.automaticBeats = 0;
+    } else if (prepared.shot.kind === "auto") {
+      this.automaticBeats += 1;
     }
     this.lastFrame = prepared.lastFrame;
     this.pendingBeat = null;
@@ -764,6 +771,11 @@ export class Director {
       scene: this.scene,
       still: prepared.shot.still,
       opening: prepared.shot.kind === "opening",
+      automaticBeats: this.automaticBeats,
+      playerLed:
+        prepared.shot.kind === "intent" ||
+        prepared.shot.kind === "choice" ||
+        prepared.shot.kind === "typed",
       memory: this.memory,
       attempted: prepared.attempted,
       previousLabels: this.offered,
@@ -839,6 +851,30 @@ export class Director {
         return;
       }
       this.land(token, prepared);
+      return;
+    }
+
+    // No meaningful decision here: the storyteller supplies the next shot
+    // and the activity keeps moving without presenting filler cards.
+    if (beat.interaction === "auto" && beat.continuation) {
+      const next = beat.continuation;
+      this.pendingChoices = [];
+      this.set({
+        phase: "filming",
+        narration: beat.narration,
+        line: beat.line,
+        choices: [],
+        workingLabel: next.label,
+        canRetryScene: false,
+        notice: null,
+      });
+      void this.filmAndLand(token, {
+        prompt: next.prompt,
+        action: next.label,
+        kind: "auto",
+        attempted: next.label,
+        fromFrame: next.cut ? undefined : this.lastFrame ?? undefined,
+      });
       return;
     }
 

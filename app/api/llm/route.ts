@@ -83,6 +83,7 @@ export async function POST(request: NextRequest) {
     typeof body.model === "string" && /^[\w.-]{1,64}$/.test(body.model)
       ? body.model
       : DEFAULT_MODEL;
+  const usesThinkingLevel = /^gemini-3\.(?:6|7|8)-flash$/.test(model);
 
   try {
     const response = await generateGemini({
@@ -91,9 +92,11 @@ export async function POST(request: NextRequest) {
       parts,
       timeoutMs: TIMEOUT_MS,
       generationConfig: {
-        temperature,
         maxOutputTokens: maxTokens,
         ...(body.json === true ? { responseMimeType: "application/json" } : {}),
+        ...(usesThinkingLevel
+          ? { thinkingConfig: { thinkingLevel: "LOW" } }
+          : { temperature }),
       },
     });
 

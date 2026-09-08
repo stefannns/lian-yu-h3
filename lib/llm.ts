@@ -16,6 +16,8 @@ export interface LlmArgs {
   model?: string;
 }
 
+export type LlmCaller = (args: LlmArgs) => Promise<string>;
+
 export class LlmError extends Error {
   constructor(
     message: string,

@@ -26,8 +26,9 @@
  *   that films it, written while the clip was still playing. Picking one
  *   costs zero LLM calls, so a tap goes straight to h3.
  *
- * Two concrete activity choices keep each beat readable. Free input remains
- * available when the player wants a different flavour, design or action.
+ * The storyteller controls pacing: routine progress continues automatically,
+ * consequential bounded decisions get two cards, and personal/open questions
+ * wait for the player's own words.
  */
 
 import {
@@ -41,9 +42,12 @@ import {
   type Character,
 } from "./character";
 import { PROMPT_WARN_CHARS } from "./limits";
-import { llmCall } from "./llm";
+import { llmCall, type LlmCaller } from "./llm";
 import { STYLES, type StyleKey } from "./styles";
 import type { Beat, Choice } from "./types";
+
+/** Story planning needs stronger instruction-following than moderation/routing. */
+const STORY_MODEL = "gemini-3.8-flash";
 
 /**
  * Every prompt that reaches h3 goes through here. Camera, sound and style
@@ -154,19 +158,29 @@ YOUR JOB
 Narrate only what the supplied image(s) actually show. Do not claim an intended action happened if it is absent. In a still, do not invent unseen before/after motion. Use the current image as visual truth; use the original wish, memory and accepted decisions to choose the next meaningful step.
 A decorative introductory beat is over as soon as it is narrated: the next question must concern the actual activity. If the player already chose flavour and cake type, do not return to choosing them; advance the recipe instead.
 
+DECIDE WHETHER TO STOP FOR THE PLAYER
+Choose exactly one interaction mode. The player should decide only when her answer materially changes what happens later.
+- "choices": there is a consequential, bounded decision with two useful and meaningfully different outcomes. Its consequence should persist for at least the next two beats or define the final result. Good: cake flavour/type, destination, activity plan, relationship boundary, final decoration. Bad: which bowl to pick up, who stirs first, whether to smile, look at him, take his hand, taste sweetness, approve how something looks, eat now versus follow a required recipe step, or perform the next routine action.
+- "free": the moment needs her own words and presets would flatten it. Use for personal feelings, a name or inscription, a promise, a creative idea with many valid answers, or a direct open question. The line should naturally invite her answer.
+- "auto": no meaningful player decision exists here. Continue the activity yourself. Routine actions, transitions, reactions, baking/chilling and payoff beats belong here. Do not ask a question in line. Write one continuation object that visibly advances the wish.
+Never manufacture a choice merely to keep the interface busy. Never turn flavour variants into free-only when two useful examples would help. After two consecutive auto beats, look for the next naturally meaningful decision or open question; if none exists yet, continue rather than inventing trivia.
+If the current image was caused by the player's choice or free answer, default to "auto": first show and advance the consequence of what she just decided. Do not immediately ask another bounded question. Give her at least one story-led payoff beat between decision points.
+For cake-making, combine flavour and cake type into the first decision. Once chosen, mixing, pouring, baking or chilling are story-led progress. The next useful stop may be one creative decoration decision or a free-form inscription. After that, finish and share the cake without asking whether to add more, whether it looks good, or whether to skip a technically required step.
+
 Return ONLY JSON:
-{"scene": string, "narration": string, "line": string|null, "memory": string, "moved": boolean, "freeOnly": boolean, "choices": [{"label": string, "prompt": string, "cut": boolean}]}
+{"scene": string, "narration": string, "line": string|null, "memory": string, "moved": boolean, "interaction": "auto"|"choices"|"free", "choices": [{"label": string, "prompt": string, "cut": boolean}], "continuation": {"label": string, "prompt": string, "cut": boolean}|null}
 
 - scene: one English sentence describing the current image's location and visible state.
 - narration: 中文，第二人称，一到两句，简洁具体，说明眼前画面和活动进展，不描写玩家外貌，不重复无意义的暧昧动作。
-- line: 一句自然、口语化的简短中文台词，不加名字、引号或冒号。直接询问当前活动中尚未决定的具体偏好；绝不复述幕后规则。如无须说话返回 null。
+- line: 一句自然、口语化的简短中文台词，不加名字、引号或冒号。interaction 为 "choices" 或 "free" 时可以直接询问尚未决定的具体偏好；为 "auto" 时只能陈述或返回 null，不能提问。绝不复述幕后规则。
 - memory: English, at most 80 words. Preserve the original goal, accepted player preferences (flavour, cake type, etc.), completed milestones and the next unresolved decision. Do not treat proposed options as accepted facts.
 - moved: whether the current scene changed location from the supplied prior scene description. A single still does not show a journey.
-- freeOnly: true when only the player's own words make sense. Then choices MUST be []. For concrete activity choices, offer helpful possibilities AND leave the normal free input available.
-- choices: otherwise exactly two materially different ways to advance the chosen activity. They need not be emotional opposites. Do not force "approach him versus avoid him", and do not replace a cake decision with "taste his finger versus look away". Both may be affectionate; their consequences must differ.
+- interaction: your pacing decision. It controls whether the story automatically continues, shows two cards, or waits for free input.
+- choices: exactly two only when interaction is "choices"; otherwise []. They must materially change or define what follows. They need not be emotional opposites. Do not force "approach him versus avoid him", and do not replace a cake decision with "taste his finger versus look away". Both may be affectionate; their consequences must differ.
   - label: 中文，四到十八个字，明确表达玩家要决定或做的事，例如“草莓奶油戚风”与“巧克力慕斯”，不要含糊地只写“听他的”。
   - prompt: the English visual prompt for AFTER she chooses this option, including its concrete consequence, following the mode-specific rules above.
-  - cut: true for a location/time jump; do not prolong a scene just to keep cut false.`;
+  - cut: true for a location/time jump; do not prolong a scene just to keep cut false.
+- continuation: required only when interaction is "auto"; otherwise null. Use the same label/prompt/cut shape. Its label is internal progress text, not a player choice.`;
 
 const intentSystem = (him: Character, mustLeaveOpening: boolean, still = false) => `Turn the player's original wish into the FIRST MAIN SCENE of a 乙女游戏.
 
@@ -277,13 +291,18 @@ export async function tellNext(args: {
   decisions?: string[];
   still?: boolean;
   opening?: boolean;
+  automaticBeats?: number;
+  playerLed?: boolean;
+  call?: LlmCaller;
 }): Promise<Beat | null> {
   const prompt =
     `ORIGINAL PLAYER WISH: ${args.wish || "Follow the player's current activity."}\n` +
     `ACCEPTED PLAYER ACTIONS: ${JSON.stringify(args.decisions ?? [])}\n` +
     `PREVIOUS SCENE: ${args.scene || (args.opening ? OPENING_SCENE : "Read the current image." )}\n` +
     `STORY SO FAR AND ACCEPTED DECISIONS: ${args.memory || (args.opening ? openingMemory() : "The main activity is beginning.")}\n` +
-    `THE PLAYER JUST TRIED: ${args.attempted}\n` +
+    `CAUSE OF THE CURRENT SCENE (player action or story-led progress): ${args.attempted}\n` +
+    `CONSECUTIVE STORY-LED BEATS SINCE HER LAST INPUT: ${args.automaticBeats ?? 0}\n` +
+    `CURRENT SCENE WAS CAUSED BY HER CHOICE OR FREE ANSWER: ${args.playerLed ? "yes" : "no"}\n` +
     (args.previousLabels.length > 0
       ? `ALREADY OFFERED (never reoffer these): ${args.previousLabels.join(" / ")}\n`
       : "") +
@@ -294,7 +313,7 @@ export async function tellNext(args: {
 
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      const output = await llmCall({
+      const output = await (args.call ?? llmCall)({
         system: tellSystem(args.him, args.still),
         prompt,
         images: args.frames.slice(0, 3),
@@ -307,22 +326,43 @@ export async function tellNext(args: {
         maxTokens: 1_800,
         temperature: 0.85,
         json: true,
+        model: STORY_MODEL,
       });
       const data = parse(output);
       const choices = readChoices(data.choices, args.style, args.still);
+      const continuation = readChoices(
+        data.continuation ? [data.continuation] : [],
+        args.style,
+        args.still
+      )[0] ?? null;
       const narration = visibleText(data.narration, 300);
-      const freeOnly = data.freeOnly === true;
-      if ((!freeOnly && choices.length !== CHOICE_COUNT) || !narration) continue;
+      const interaction =
+        data.interaction === "auto" || data.interaction === "choices" || data.interaction === "free"
+          ? data.interaction
+          // Read old-shaped responses defensively during a hot reload.
+          : data.freeOnly === true
+            ? "free"
+            : continuation
+              ? "auto"
+              : choices.length === CHOICE_COUNT
+                ? "choices"
+                : null;
+      if (!interaction || !narration) continue;
+      if (interaction === "choices" && choices.length !== CHOICE_COUNT) continue;
+      if (interaction === "auto" && !continuation) continue;
+      const rawLine = visibleText(data.line, 120);
       return {
         scene: str(data.scene, 400),
         narration,
         // Dialogue is optional. If only the line leaked a model-facing rule,
         // keep the valid beat and omit the line instead of blocking the run.
-        line: visibleText(data.line, 120) || null,
+        line: interaction === "auto" && /[?？]\s*$/.test(rawLine) ? null : rawLine || null,
         memory: str(data.memory, 600),
         moved: data.moved === true,
-        freeOnly,
-        choices: freeOnly ? [] : choices,
+        interaction,
+        freeOnly: interaction === "free",
+        choices: interaction === "choices" ? choices : [],
+        continuation: interaction === "auto" ? continuation : null,
       };
     } catch (cause) {
       console.error(`[tellNext] attempt ${attempt + 1} failed:`, cause);
@@ -343,20 +383,22 @@ export async function writeIntentShot(
   style: StyleKey,
   him: Character,
   mustLeaveOpening = false,
-  still = false
+  still = false,
+  call: LlmCaller = llmCall
 ): Promise<Choice | null> {
   const text = wish.trim().slice(0, 280);
   if (!text) return null;
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const output = await llmCall({
+      const output = await call({
         system: intentSystem(him, mustLeaveOpening, still),
         // The wish is untrusted player text, so it is handed over as data
         // rather than pasted into the instructions.
         prompt: JSON.stringify({ player_wish: text }),
-        maxTokens: 400,
+        maxTokens: 800,
         temperature: 0.9,
         json: true,
+        model: STORY_MODEL,
       });
       const data = parse(output);
       const prompt = str(data.prompt, 900);
@@ -384,11 +426,12 @@ export async function writeTypedShot(args: {
   wish?: string;
   decisions?: string[];
   still?: boolean;
+  call?: LlmCaller;
 }): Promise<Choice | null> {
   const text = args.text.trim().slice(0, 280);
   if (!text) return null;
   try {
-    const output = await llmCall({
+    const output = await (args.call ?? llmCall)({
       system: typedSystem(args.him, args.still),
       prompt: JSON.stringify({
         original_player_wish: args.wish,
@@ -397,9 +440,10 @@ export async function writeTypedShot(args: {
         what_is_on_screen_right_now: args.scene,
         player_answer: text,
       }),
-      maxTokens: 400,
+      maxTokens: 800,
       temperature: 0.9,
       json: true,
+      model: STORY_MODEL,
     });
     const data = parse(output);
     const prompt = str(data.prompt, 900);
