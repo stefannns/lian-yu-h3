@@ -161,7 +161,18 @@ export function Stage({
     if (!video) return;
     let cancelled = false;
     let timer: number | null = null;
+    let stream: MediaStream | null = null;
     const samples: string[] = [];
+
+    // Reactor tracks begin on the session's idle black frame. Chromium can
+    // keep rendering that frame when media starts unless the stream is
+    // reattached on the track's unmute event. This mirrors ReactorView.
+    const onTrackUnmute = () => {
+      if (cancelled || !stream) return;
+      video.srcObject = null;
+      video.srcObject = stream;
+      void video.play().catch(() => undefined);
+    };
 
     const grab = (width: number, quality: number) => {
       if (!video.videoWidth || !video.videoHeight || video.readyState < 2) return "";
@@ -176,7 +187,11 @@ export function Stage({
 
     void (async () => {
       try {
-        video.srcObject = await reactorMediaStream();
+        stream = await reactorMediaStream();
+        for (const track of stream.getTracks()) {
+          track.addEventListener("unmute", onTrackUnmute);
+        }
+        video.srcObject = stream;
         await video.play().catch(async () => {
           video.muted = true;
           setReactorMuted(true);
@@ -210,6 +225,11 @@ export function Stage({
     return () => {
       cancelled = true;
       if (timer !== null) window.clearInterval(timer);
+      if (stream) {
+        for (const track of stream.getTracks()) {
+          track.removeEventListener("unmute", onTrackUnmute);
+        }
+      }
       video.srcObject = null;
     };
   }, [reactorClipId, state.currentShot?.still, onReactorClipEnded, onReactorClipFailed]);

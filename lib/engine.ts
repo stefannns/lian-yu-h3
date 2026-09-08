@@ -338,9 +338,7 @@ export class Director {
     const him = this.him;
     const wish = text.trim().slice(0, 280);
     if (!wish || !him) return;
-    // Also starts a fresh opening after a recoverable opening failure.
-    this.begin();
-    const token = this.token;
+    const intakeToken = this.token;
     this.wishSubmitted = true;
     this.set({ phase: "filming", workingLabel: "……", notice: null });
 
@@ -354,7 +352,7 @@ export class Director {
         .catch(() => ({ allowed: false })),
       writeIntentShot(wish, this.style, him, !isStayInBedWish(wish), this.videoOff),
     ]);
-    if (token !== this.token) return;
+    if (intakeToken !== this.token) return;
 
     const wishCheck = moderation as { allowed?: boolean; degraded?: boolean };
     if (!wishCheck.allowed) {
@@ -376,6 +374,10 @@ export class Director {
       return;
     }
 
+    // Only an accepted, submitted wish may start paid visual generation.
+    // This intentionally trades a little startup latency for predictable cost.
+    this.begin();
+    const token = this.token;
     this.wish = wish;
     // The opening plays first, and this films underneath it.
     const opening = this.canned;
@@ -822,7 +824,9 @@ export class Director {
   }
 
   onReactorClipFailed(message = "Reactor 视频播放失败。") {
-    if (this.state.phase !== "playing" || !this.state.currentShot?.reactorClipId) return;
+    const clipId = this.state.currentShot?.reactorClipId;
+    if (this.state.phase !== "playing" || !clipId) return;
+    void discardReactorClip(clipId);
     this.set({ phase: "error", error: message });
   }
 

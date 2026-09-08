@@ -7,17 +7,9 @@ import { STYLES, STYLE_ORDER, type StyleKey } from "@/lib/styles";
 /**
  * The question asked before the eyes open.
  *
- * This screen is doing two jobs at once and only one of them is visible.
- * Visibly, it asks the player which look they want and what they want from
- * today. Invisibly, it is the generation window: his portrait, the painted
- * first frame and the ten-second waking shot are all being made while the
- * cursor blinks. The longer someone sits here thinking, the less they wait
- * later — so nothing on this screen hurries them, and nothing announces the
- * work.
- *
- * Generation starts on the first wish keystroke only after a style and him
- * are both chosen — not on mount. A bare page load (or an early style click)
- * cannot spend on an opening whose visual world is still undecided.
+ * It asks the player which look they want and what they want from today.
+ * Paid visual generation starts only after a completed wish passes
+ * moderation. Typing or changing setup choices cannot spend a video clip.
  */
 export function Intake({
   style,
@@ -26,7 +18,6 @@ export function Intake({
   onVideoMode,
   him,
   onOpenCreator,
-  onWake,
   onSubmit,
   notice,
   busy,
@@ -38,8 +29,6 @@ export function Intake({
   onVideoMode: (off: boolean) => void;
   him: Character | null;
   onOpenCreator: () => void;
-  /** Called on first interaction, to start the opening generating. */
-  onWake: () => void;
   onSubmit: (wish: string) => void;
   notice: string | null;
   busy: boolean;
@@ -48,20 +37,10 @@ export function Intake({
 }) {
   const [wish, setWish] = useState("");
   const field = useRef<HTMLTextAreaElement>(null);
-  const woken = useRef(false);
 
   useEffect(() => {
     field.current?.focus();
   }, []);
-
-  const wake = () => {
-    // Choosing a look before making him must not consume the one "start"
-    // gesture: begin() has nothing to make without him. Generation starts on
-    // the first wish keystroke after both prerequisites are true.
-    if (woken.current || !him || !styleChosen) return;
-    woken.current = true;
-    onWake();
-  };
 
   // Nothing can start until the visual world and the person in it are chosen.
   const ready = wish.trim().length > 0 && !busy && him !== null && styleChosen;
@@ -176,7 +155,6 @@ export function Intake({
             }
             onChange={(event) => {
               setWish(event.target.value);
-              wake();
             }}
             onKeyDown={(event) => {
               // Enter sends, shift+enter breaks the line — the convention for

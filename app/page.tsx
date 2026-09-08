@@ -21,15 +21,11 @@ export default function Page() {
     director.getSnapshot
   );
 
-  // Nothing generates on mount. The opening starts on the first wish
-  // keystroke after the player has deliberately chosen both the look and
-  // him; until then there is no correct opening to film. begin() is
-  // idempotent; setStyle() restarts it if they change their mind.
+  // Nothing generates until a completed wish is submitted and accepted.
   const [creating, setCreating] = useState(false);
   // The engine has a safe internal default, but the player must deliberately
   // choose a look before making him: his portrait is generated in that look.
   const [styleChosen, setStyleChosen] = useState(false);
-  const onWake = useCallback(() => director.begin(), [director]);
   const onPickHim = useCallback(
     (him: Character) => director.setCharacter(him),
     [director]
@@ -67,7 +63,6 @@ export default function Page() {
             className="btn"
             onClick={() => {
               director.reset();
-              director.begin();
             }}
           >
             重 新 醒 来
@@ -95,7 +90,6 @@ export default function Page() {
           onStyle={onStyle}
           videoOff={state.videoOff}
           onVideoMode={onVideoMode}
-          onWake={onWake}
           onSubmit={onSubmit}
           notice={state.notice}
           him={state.him}

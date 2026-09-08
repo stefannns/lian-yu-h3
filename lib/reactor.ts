@@ -93,9 +93,12 @@ function handleMessage(message: ReactorMessage) {
 async function ensureReactor(): Promise<Reactor> {
   const configure = async (client: Reactor) => {
     if (configured) return;
-    await client.sendCommand("set_canvas", { aspect: "16:9" });
-    await client.sendCommand("set_flush_on_clip_end", { enabled: false });
-    await client.sendCommand("set_autoplay", { enabled: false });
+    const canvas = await client.sendCommand("set_canvas", { aspect: "16:9" });
+    const flush = await client.sendCommand("set_flush_on_clip_end", { enabled: false });
+    const autoplay = await client.sendCommand("set_autoplay", { enabled: false });
+    if (!canvas || !flush || !autoplay) {
+      throw new Error(client.getLastError()?.message ?? "Reactor session setup failed.");
+    }
     configured = true;
   };
   if (reactor?.getStatus() === "ready") {
@@ -182,8 +185,14 @@ export async function filmShot(args: {
   }
   const id = clipId(reply);
   if (!id) throw new Error("Reactor enqueue reply had no clip id.");
-  await waitUntilGenerated(id);
-  args.signal?.throwIfAborted();
+  try {
+    await waitUntilGenerated(id);
+    args.signal?.throwIfAborted();
+  } catch (cause) {
+    generated.delete(id);
+    await client.sendCommand("pop", { clip_id: id });
+    throw cause;
+  }
   return { clipId: id };
 }
 
@@ -263,6 +272,7 @@ export async function playReactorClip(id: string): Promise<void> {
   playing.set(id, playback);
   try {
     await playback;
+    generated.delete(id);
   } finally {
     playing.delete(id);
   }
