@@ -61,6 +61,8 @@ export interface DirectorState {
   workingLabel: string | null;
   /** Transient 中文 notice (a refused wish, a soft failure). */
   notice: string | null;
+  /** A failed next scene can be retried without rewriting the player's action. */
+  canRetryScene: boolean;
   error: string | null;
   /** True once his portrait is in hand — the identity anchor is live. */
   anchored: boolean;
@@ -83,10 +85,11 @@ const INITIAL: DirectorState = {
   shots: [],
   workingLabel: null,
   notice: null,
+  canRetryScene: false,
   error: null,
   anchored: false,
   style: DEFAULT_STYLE,
-  videoOff: false,
+  videoOff: true,
   him: null,
 };
 
@@ -97,6 +100,14 @@ interface Prepared {
   strip: string[];
   /** 中文 or English, for the storyteller's "THE PLAYER JUST TRIED" line. */
   attempted: string;
+}
+
+interface SceneRequest {
+  prompt: string;
+  action: string | null;
+  kind: Shot["kind"];
+  attempted: string;
+  fromFrame?: string;
 }
 
 /**
@@ -139,7 +150,7 @@ export class Director {
   /** The chosen look. Baked into every prompt and every painted still. */
   private style: StyleKey = DEFAULT_STYLE;
   /** 无视频模式. See paintBeat(). */
-  private videoOff = false;
+  private videoOff = true;
   /** The 男主 this run is about. Null until the player makes one. */
   private him: Character | null = null;
   /** Timer that ends a still's dwell, so it can be cancelled on reset. */
@@ -147,6 +158,8 @@ export class Director {
 
   /** A shot already filmed and waiting for the current clip to finish. */
   private canned: Promise<Prepared | null> | null = null;
+  private cannedRequest: SceneRequest | null = null;
+  private retryRequest: SceneRequest | null = null;
   /** The beat the storyteller wrote while the clip was playing. */
   private pendingBeat: Beat | null = null;
   private clipEnded = false;
@@ -212,17 +225,15 @@ export class Director {
   /**
    * 无视频模式 on or off.
    *
-   * Unlike the style, this is NOT baked into anything already generated — a
-   * painted still and a filmed clip both end as a frame, and a frame is all
-   * the next beat inherits. So the two modes chain into each other cleanly
-   * and this can be flipped at any point in a run without restarting it.
-   * Before the run starts it is free; mid-run it simply changes what the
-   * next beat costs.
+   * Select before submitting the wish. If an opening is already being
+   * prepared, replace it under a new token so the old mode cannot land.
    */
   setVideoMode(off: boolean) {
+    if (this.state.phase !== "intake" || this.wishSubmitted) return;
     if (off === this.videoOff) return;
     this.videoOff = off;
     this.set({ videoOff: off });
+    if (this.started) this.canned = this.prepareOpening(++this.token);
   }
 
   /**
@@ -251,10 +262,7 @@ export class Director {
     if (!him) return null;
     try {
       // 无视频模式 is a Gemini still story: it never calls fal/H3, but each
-      // beat has one painted frame. A text-only character stays valid here —
-      // do not ask /api/portrait to invent a portrait merely because this
-      // mode can show scene art. If they already chose art, reuse it as the
-      // identity reference instead.
+      // beat has one painted frame, anchored to the character's portrait.
       if (this.videoOff) {
         this.portrait = him.hasArt ? await loadPortrait(him.id, this.style) : null;
         if (token !== this.token) return null;
@@ -319,6 +327,8 @@ export class Director {
     const him = this.him;
     const wish = text.trim().slice(0, 280);
     if (!wish || !him) return;
+    // Also starts a fresh opening after a recoverable opening failure.
+    this.begin();
     const token = this.token;
     this.wishSubmitted = true;
     this.set({ phase: "filming", workingLabel: "……", notice: null });
@@ -361,7 +371,15 @@ export class Director {
     const prepared = await (opening ?? Promise.resolve(null));
     if (token !== this.token) return;
     if (!prepared) {
-      this.set({ phase: "error", error: "开场没有拍成。刷新页面再试一次。" });
+      this.started = false;
+      this.wishSubmitted = false;
+      this.set({
+        phase: "intake",
+        workingLabel: null,
+        notice: this.videoOff
+          ? "开场画面暂时没生成成功。愿望还在，稍后再按一次睁眼。"
+          : "开场没有拍成。愿望还在，稍后再按一次睁眼。",
+      });
       return;
     }
 
@@ -384,7 +402,7 @@ export class Director {
       ),
       cut: mustLeaveOpening,
     };
-    this.canned = this.generate(token, {
+    this.cannedRequest = {
       prompt: wishShot.prompt,
       action: wishShot.label,
       kind: "intent",
@@ -392,7 +410,8 @@ export class Director {
       // The wish may cut straight to wherever it goes — the bakery, the sea —
       // rather than answering from the bed. See intentSystem in lib/story.ts.
       fromFrame: wishShot.cut ? undefined : prepared.lastFrame,
-    });
+    };
+    this.canned = this.generate(token, this.cannedRequest);
   }
 
   /** Take one of the cards. Nothing is pre-filmed, so this films now. */
@@ -410,7 +429,8 @@ export class Director {
     const choice = this.state.choices[index];
     if (!choice || !this.canFilm()) return;
     const token = this.token;
-    this.set({ phase: "filming", workingLabel: choice.label, choices: [], notice: null });
+    this.retryRequest = null;
+    this.set({ phase: "filming", workingLabel: choice.label, choices: [], notice: null, canRetryScene: false });
     void this.filmAndLand(token, {
       prompt: choice.prompt,
       action: choice.label,
@@ -433,7 +453,8 @@ export class Director {
     if (!text || !him || !this.canFilm()) return;
     const token = this.token;
     const frame = this.lastFrame ?? "";
-    this.set({ phase: "filming", workingLabel: text, choices: [], notice: null });
+    this.retryRequest = null;
+    this.set({ phase: "filming", workingLabel: text, choices: [], notice: null, canRetryScene: false });
 
     const [moderation, written] = await Promise.all([
       fetch("/api/moderate", {
@@ -484,6 +505,21 @@ export class Director {
     });
   }
 
+  /** Retry the same prompt and references, with no new story-writing call. */
+  retryScene() {
+    if (this.state.phase !== "choosing" || !this.retryRequest) return;
+    const request = this.retryRequest;
+    this.retryRequest = null;
+    this.set({
+      phase: "filming",
+      workingLabel: request.action,
+      choices: [],
+      notice: null,
+      canRetryScene: false,
+    });
+    void this.filmAndLand(this.token, request);
+  }
+
   reset() {
     this.token++;
     this.portrait = null;
@@ -493,6 +529,8 @@ export class Director {
     this.offered = [];
     this.canned = null;
     this.pendingBeat = null;
+    this.cannedRequest = null;
+    this.retryRequest = null;
     this.pendingChoices = [];
     this.clipEnded = false;
     this.wishSubmitted = false;
@@ -636,29 +674,22 @@ export class Director {
   /** Generate and put straight on screen — the path a tapped card takes. */
   private async filmAndLand(
     token: number,
-    args: {
-      prompt: string;
-      action: string | null;
-      kind: Shot["kind"];
-      attempted: string;
-      fromFrame?: string;
-    }
+    args: SceneRequest
   ) {
     const prepared = await this.generate(token, args);
     if (token !== this.token) return;
     if (!prepared) {
-      // A mid-run failure falls back to the cards this beat already wrote,
-      // rather than ending the morning. The frozen frame is still the truth.
-      if (this.pendingChoices.length > 0) {
-        this.set({
-          phase: "choosing",
-          workingLabel: null,
-          choices: this.pendingChoices,
-          notice: "这一幕没有拍成。再选一次。",
-        });
-      } else {
-        this.set({ phase: "error", error: "这一幕没有拍成，而且没有可以退回的选择。" });
-      }
+      // Empty choices are a valid free-input scene, not a terminal failure.
+      this.retryRequest = args;
+      this.set({
+        phase: "choosing",
+        workingLabel: null,
+        choices: this.pendingChoices,
+        canRetryScene: true,
+        notice: this.videoOff
+          ? "这一幕画面暂时没生成成功。可以重试这一幕，或换个回答。"
+          : "这一幕没有拍成。可以重试这一幕，或换个回答。",
+      });
       return;
     }
     this.land(token, prepared);
@@ -669,12 +700,14 @@ export class Director {
    * read costs zero wall-clock: it runs while the clip plays.
    */
   private land(token: number, prepared: Prepared) {
+    this.retryRequest = null;
     this.lastFrame = prepared.lastFrame;
     this.pendingBeat = null;
     this.clipEnded = false;
 
     this.set({
       phase: "playing",
+      canRetryScene: false,
       beat: prepared.shot.beat,
       currentShot: prepared.shot,
       shots: [...this.state.shots, prepared.shot],
@@ -746,7 +779,9 @@ export class Director {
     // canned clip is usually ready before the player has looked at it.
     if (this.canned) {
       const queued = this.canned;
+      const request = this.cannedRequest;
       this.canned = null;
+      this.cannedRequest = null;
       this.set({
         phase: "filming",
         narration: beat.narration,
@@ -760,7 +795,13 @@ export class Director {
         // The queued shot died, so the cards this beat wrote become the
         // beat after all — they were only ever the unused alternative.
         this.offer(beat, { narration: false });
-        this.set({ notice: "那一幕没有拍成。从这里继续吧。" });
+        this.retryRequest = request;
+        this.set({
+          canRetryScene: request !== null,
+          notice: this.videoOff
+            ? "愿望中的画面暂时没生成成功。可以重试这一幕，或从这里继续。"
+            : "愿望中的那一幕没有拍成。可以重试这一幕，或从这里继续。",
+        });
         return;
       }
       this.land(token, prepared);

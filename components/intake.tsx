@@ -79,10 +79,11 @@ export function Intake({
       <button
         type="button"
         className={`mode${videoOff ? " off" : ""}`}
+        disabled={busy}
         onClick={() => onVideoMode(!videoOff)}
         title={
           videoOff
-            ? "每一幕是一张静帧，便宜十倍，几秒就到"
+            ? "每一幕生成一张静帧，不调用视频服务"
             : "每一幕是十秒视频，由 h3 生成"
         }
       >

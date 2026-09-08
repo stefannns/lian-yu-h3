@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { ImageGenError, generateImage, toDataUri } from "@/lib/imagegen";
+import { ImageGenError, generateImage, imageFailureMessage, toDataUri } from "@/lib/imagegen";
 
 /**
  * Server-side still painter.
@@ -72,11 +72,11 @@ export async function POST(request: NextRequest) {
     // video reference, which accepts data URIs.
     return NextResponse.json({ image: toDataUri(bytes), aspect });
   } catch (cause) {
-    const message = cause instanceof Error ? cause.message : "unknown";
-    console.error("[/api/image] failed:", message);
+    const status = cause instanceof ImageGenError ? cause.status : undefined;
+    console.error("[/api/image] failed", { status, type: cause instanceof Error ? cause.name : "unknown" });
     return NextResponse.json(
-      { error: "Image request failed.", detail: message },
-      { status: cause instanceof ImageGenError && cause.status ? 502 : 503 }
+      { error: imageFailureMessage(cause), upstreamStatus: status },
+      { status: status === 429 ? 429 : 502 }
     );
   }
 }

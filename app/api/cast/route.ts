@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { portraitPrompt, type Character } from "@/lib/character";
 import { generateGemini, type GeminiPart } from "@/lib/gemini";
-import { generateImage, toDataUri } from "@/lib/imagegen";
+import { ImageGenError, generateImage, imageFailureMessage, toDataUri } from "@/lib/imagegen";
 import { DEFAULT_STYLE, isStyleKey } from "@/lib/styles";
 
 /**
@@ -192,10 +192,12 @@ export async function POST(request: NextRequest) {
         source = await paint(
           portraitPrompt({ id: "", name: "", descriptor, temperament: "" }, style)
         );
-      } catch {
+      } catch (cause) {
+        const status = cause instanceof ImageGenError ? cause.status : undefined;
+        console.error("[/api/cast] portrait failed", { status, type: cause instanceof Error ? cause.name : "unknown" });
         return NextResponse.json(
-          { error: "立绘没能画出来，请再试一次。" },
-          { status: 502 }
+          { error: imageFailureMessage(cause), upstreamStatus: status },
+          { status: status === 429 ? 429 : 502 }
         );
       }
     }

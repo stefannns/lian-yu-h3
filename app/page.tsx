@@ -46,6 +46,7 @@ export default function Page() {
   const onClipEnded = useCallback(() => director.onClipEnded(), [director]);
   const onChoose = useCallback((index: number) => director.choose(index), [director]);
   const onTyped = useCallback((text: string) => void director.submitTyped(text), [director]);
+  const onRetry = useCallback(() => director.retryScene(), [director]);
 
   if (state.phase === "error") {
     return (
@@ -103,6 +104,7 @@ export default function Page() {
       onClipEnded={onClipEnded}
       onChoose={onChoose}
       onTyped={onTyped}
+      onRetry={onRetry}
     />
   );
 }

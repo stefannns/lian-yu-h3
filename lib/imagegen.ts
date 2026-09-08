@@ -52,13 +52,31 @@ export interface ImageRequest {
 }
 
 export class ImageGenError extends Error {
-  constructor(message: string, readonly status?: number) {
+  constructor(message: string, readonly status?: number, readonly retryAfterMs?: number) {
     super(message);
     this.name = "ImageGenError";
   }
 }
 
 const TIMEOUT_MS = 180_000;
+
+/** Safe player-facing messages; raw provider responses stay out of the UI. */
+export function imageFailureMessage(cause: unknown): string {
+  if (cause instanceof ImageGenError && cause.status === 429) {
+    return "图片服务暂时繁忙或额度受限，自动重试后仍未成功。请稍等后重试。";
+  }
+  if (cause instanceof ImageGenError && (cause.status === 401 || cause.status === 403)) {
+    return "图片服务认证或权限异常，请检查 Google Cloud 配置。";
+  }
+  return "画面暂时没生成成功，请稍后重试。";
+}
+
+function retryAfterMs(value: string | null): number | undefined {
+  if (!value) return undefined;
+  const seconds = Number(value);
+  const delay = Number.isFinite(seconds) ? seconds * 1_000 : Date.parse(value) - Date.now();
+  return Number.isFinite(delay) ? Math.max(0, delay) : undefined;
+}
 
 /** Split `data:image/jpeg;base64,...` into its mime type and payload. */
 function splitDataUri(uri: string): { mime: string; data: string } | null {
@@ -85,24 +103,9 @@ function splitDataUri(uri: string): { mime: string; data: string } | null {
  *                :generateContent
  *              API key in x-goog-api-key ONLY.
  *
- * THE ENDPOINT IS CHOSEN BY THE CREDENTIAL, not by which env var is set —
- * measured, because the two failures are opposite and each one masks the
- * other:
- *
- *   Vertex does NOT accept API keys, at all: 401 CREDENTIALS_MISSING, "API
- *   keys are not supported by this API. Expected OAuth2 access token." A key
- *   that IS allowed through the key's API restrictions still fails here —
- *   the restriction check runs first and returns a different 403
- *   (API_KEY_SERVICE_BLOCKED), which reads like the only problem and is not.
- *
- *   The Gemini API accepts API keys and nothing else, and needs the
- *   GENERATIVE LANGUAGE API allowed on that key. Allowing only the Vertex AI
- *   API is the other half of the same trap: it unblocks the endpoint that
- *   cannot use the key and leaves the one that can, blocked.
- *
- * So sending a key to Vertex can never work however the project is
- * configured. Prefer OAuth where it is genuinely obtainable; otherwise use
- * the key against the endpoint that takes keys.
+ * A configured Cloud project or explicit Vertex transport requires OAuth.
+ * Missing ADC is an error, never permission to switch billing to an API key.
+ * Key-only installations without a Vertex selection use the Gemini API.
  */
 async function googleImage(request: ImageRequest): Promise<Buffer> {
   const key =
@@ -112,6 +115,9 @@ async function googleImage(request: ImageRequest): Promise<Buffer> {
   const project = process.env.GOOGLE_CLOUD_PROJECT?.trim();
   const location = process.env.GOOGLE_CLOUD_LOCATION?.trim() || "us-central1";
   const model = process.env.VERTEX_IMAGE_MODEL?.trim() || "gemini-3.1-flash-image";
+  const requiresVertex = Boolean(project) ||
+    process.env.IMAGE_PROVIDER?.trim().toLowerCase() === "vertex" ||
+    process.env.GEMINI_TRANSPORT?.trim().toLowerCase() === "vertex";
 
   // OAuth first, and only if a project is configured to use it against.
   // Covers a service-account JSON at GOOGLE_APPLICATION_CREDENTIALS and a
@@ -126,13 +132,18 @@ async function googleImage(request: ImageRequest): Promise<Buffer> {
       });
       token = (await (await auth.getClient()).getAccessToken()).token ?? null;
     } catch {
-      token = null; // No ADC on this machine — fall through to the key.
+      token = null;
     }
   }
 
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   let url: string;
   const usingVertex = Boolean(project && token);
+
+  // An explicit Cloud billing choice must not fall back to an AI Studio key.
+  if (requiresVertex && !usingVertex) {
+    throw new ImageGenError("Vertex image credentials are unavailable. Check the project and Application Default Credentials.", 401);
+  }
 
   if (usingVertex) {
     // Google publishes Nano Banana Pro in Vertex's global region. Unlike
@@ -146,14 +157,6 @@ async function googleImage(request: ImageRequest): Promise<Buffer> {
       `/locations/${location}/publishers/google/models/${model}:generateContent`;
     headers.Authorization = `Bearer ${token}`;
   } else if (key) {
-    if (project) {
-      console.warn(
-        "[imagegen] GOOGLE_CLOUD_PROJECT is set but no OAuth credentials were " +
-          "found, and Vertex rejects API keys — using the Gemini API endpoint " +
-          "with the key instead. To actually use Vertex, point " +
-          "GOOGLE_APPLICATION_CREDENTIALS at a service-account JSON."
-      );
-    }
     url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
     headers["x-goog-api-key"] = key;
   } else {
@@ -222,7 +225,8 @@ async function googleImage(request: ImageRequest): Promise<Buffer> {
           : "";
     throw new ImageGenError(
       `image API ${response.status}: ${detail.slice(0, 400)}${hint}`,
-      response.status
+      response.status,
+      retryAfterMs(response.headers.get("retry-after"))
     );
   }
 
@@ -304,26 +308,25 @@ export function activeProvider(): string {
  * Make one image. Returns the bytes; callers decide whether they want a file,
  * a data URI or a response.
  *
- * One retry on a transport failure, because a portrait is generated once and
- * then rides every later shot as the run's identity anchor — losing one to a
- * dropped connection costs the whole run its face.
+ * Retry transient capacity failures with bounded exponential backoff. A
+ * transport failure gets one retry; authentication and content failures do
+ * not retry. Never change providers or billing transports during a retry.
  */
 export async function generateImage(request: ImageRequest): Promise<Buffer> {
   const provider = PROVIDERS[activeProvider()];
-  try {
-    return await provider(request);
-  } catch (first) {
-    // A refusal, a bad key or a bad request will fail the same way twice;
-    // only a transport-shaped failure is worth paying for again.
-    if (first instanceof ImageGenError && first.status && first.status < 500) {
-      throw first;
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await provider(request);
+    } catch (cause) {
+      const status = cause instanceof ImageGenError ? cause.status : undefined;
+      const transient = status === 429 || (status !== undefined && status >= 500);
+      const maxAttempts = transient ? 4 : cause instanceof ImageGenError ? 1 : 2;
+      const waitHint = cause instanceof ImageGenError ? cause.retryAfterMs ?? 0 : 0;
+      if (attempt >= maxAttempts || waitHint > 60_000) throw cause;
+      const delay = Math.max(waitHint, 2_000 * 2 ** (attempt - 1) + Math.floor(Math.random() * 1_000));
+      console.warn("[imagegen] retrying transient failure", { status, attempt, delayMs: delay });
+      await new Promise((done) => setTimeout(done, delay));
     }
-    console.error(
-      "[imagegen] first attempt failed, retrying:",
-      first instanceof Error ? first.message : first
-    );
-    await new Promise((done) => setTimeout(done, 800));
-    return await provider(request);
   }
 }
 

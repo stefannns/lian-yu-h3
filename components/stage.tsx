@@ -75,10 +75,12 @@ function Choices({
   state,
   onChoose,
   onTyped,
+  onRetry,
 }: {
   state: DirectorState;
   onChoose: (index: number) => void;
   onTyped: (text: string) => void;
+  onRetry: () => void;
 }) {
   const [text, setText] = useState("");
   const freeOnly = state.choices.length === 0;
@@ -86,8 +88,11 @@ function Choices({
   return (
     <div className="choices">
       <Script name={state.him?.name ?? ""} narration={state.narration} line={state.line} />
-      {!freeOnly && (
+      {(state.canRetryScene || !freeOnly) && (
         <div className="choice-list">
+          {state.canRetryScene && (
+            <button className="card" onClick={onRetry}>重试这一幕</button>
+          )}
           {state.choices.map((choice, index) => (
             <button key={choice.label} className="card" onClick={() => onChoose(index)}>
               {choice.label}
@@ -133,11 +138,13 @@ export function Stage({
   onClipEnded,
   onChoose,
   onTyped,
+  onRetry,
 }: {
   state: DirectorState;
   onClipEnded: () => void;
   onChoose: (index: number) => void;
   onTyped: (text: string) => void;
+  onRetry: () => void;
 }) {
   // A painted beat has no <video> at all, so the freeze layer — which is
   // already mounted above the video and already does a slow push-in — simply
@@ -190,7 +197,7 @@ export function Stage({
       </Fade>
 
       <Fade show={state.phase === "choosing"}>
-        <Choices state={state} onChoose={onChoose} onTyped={onTyped} />
+        <Choices state={state} onChoose={onChoose} onTyped={onTyped} onRetry={onRetry} />
       </Fade>
 
       {/* The shutter card only appears when there is genuinely nothing else
