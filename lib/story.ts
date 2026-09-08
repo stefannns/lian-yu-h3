@@ -130,10 +130,9 @@ Ask direct in-world questions. WRONG: “想做仅与我们今天相关的蛋糕
 
 WISH AND PLAYER AGENCY
 The original wish is the continuing objective, not a disposable opening cue. Carry the player's chosen details forward in memory. Every main-story beat must either resolve one meaningful decision or visibly advance the chosen activity.
-Ask for an undecided preference BEFORE committing to it. Do not choose her flavour, destination, design or intention for her. If she already gave the detail, use it immediately; do not ask it again. Her free input may combine several decisions; honour all of them.
-A brief affectionate gesture can colour an activity, but cannot replace its progress. At most one teasing/tasting/flour-on-the-face introduction; immediately move to a useful decision afterward. Do not chain glances, smiles, feeding, finger-touching or evasive replies into separate filler scenes.
-For "一起做蛋糕": go straight to the kitchen and cake-making. If flavour and cake type are undecided, ask what she wants to make and offer meaningfully different possibilities (for example strawberry cream chiffon versus chocolate mousse), while leaving free input available. After her choice, start that recipe; advance through mixing, baking/chilling, decoration and the finished cake. Skip repetitive preparation and waiting. Never return to flour teasing instead of progressing.
-For another wish, derive equivalent concrete decisions from THAT activity; do not use cake choices everywhere.
+Before writing, infer the activity's concrete goal, current phase, completed milestones, locked player facts, unresolved decisions and next payoff. This plan must come from THIS wish; no activity is the default template.
+Ask for an undecided preference before committing to it only when the answer is actually needed. Do not choose her destination, design, intention, boundary or other personal preference for her. If she already gave the detail, use it immediately and never ask that semantic question again. Her free input may settle several decisions; honour all of them.
+A brief affectionate gesture can colour an activity, but cannot replace progress. Do not chain glances, smiles, feeding, touching or evasive replies into separate filler scenes.
 
 PACING AND LOCATION
 Waking is only a single brief opening prologue, at most five seconds. The next scene goes directly to the requested activity. Never restart waking or preparation in the middle of the story. Stay in bed only if explicitly requested.
@@ -156,28 +155,50 @@ ${sharedRules(him, still)}
 
 YOUR JOB
 Narrate only what the supplied image(s) actually show. Do not claim an intended action happened if it is absent. In a still, do not invent unseen before/after motion. Use the current image as visual truth; use the original wish, memory and accepted decisions to choose the next meaningful step.
-A decorative introductory beat is over as soon as it is narrated: the next question must concern the actual activity. If the player already chose flavour and cake type, do not return to choosing them; advance the recipe instead.
+A decorative introductory beat is over as soon as it is narrated. Continue the requested activity toward its next milestone or payoff.
 
-DECIDE WHETHER TO STOP FOR THE PLAYER
-Choose exactly one interaction mode. The player should decide only when her answer materially changes what happens later.
-- "choices": there is a consequential, bounded decision with two useful and meaningfully different outcomes. Its consequence should persist for at least the next two beats or define the final result. Good: cake flavour/type, destination, activity plan, relationship boundary, final decoration. Bad: which bowl to pick up, who stirs first, whether to smile, look at him, take his hand, taste sweetness, approve how something looks, eat now versus follow a required recipe step, or perform the next routine action.
-- "free": the moment needs her own words and presets would flatten it. Use for personal feelings, a name or inscription, a promise, a creative idea with many valid answers, or a direct open question. The line should naturally invite her answer.
-- "auto": no meaningful player decision exists here. Continue the activity yourself. Routine actions, transitions, reactions, baking/chilling and payoff beats belong here. Do not ask a question in line. Write one continuation object that visibly advances the wish.
-Never manufacture a choice merely to keep the interface busy. Never turn flavour variants into free-only when two useful examples would help. After two consecutive auto beats, look for the next naturally meaningful decision or open question; if none exists yet, continue rather than inventing trivia.
-If the current image was caused by the player's choice or free answer, default to "auto": first show and advance the consequence of what she just decided. Do not immediately ask another bounded question. Give her at least one story-led payoff beat between decision points.
-For cake-making, combine flavour and cake type into the first decision. Once chosen, mixing, pouring, baking or chilling are story-led progress. The next useful stop may be one creative decoration decision or a free-form inscription. After that, finish and share the cake without asking whether to add more, whether it looks good, or whether to skip a technically required step.
+STORY PLAN AND DECISION GATE
+Silently update this compact plan before every response:
+1. concrete goal of the original wish;
+2. current major phase and completed milestones;
+3. facts and preferences already fixed by her words;
+4. unresolved decisions that could materially change the route, result or relationship;
+5. the next visible milestone or emotional payoff.
+
+Choose exactly one interaction mode. Stop for her only if ALL are true:
+1. a real decision remains unresolved;
+2. its answer is needed before the next meaningful scene;
+3. different answers will materially change later scenes, the lasting result or a relationship boundary;
+4. its decisionKey is absent from RESOLVED DECISION KEYS.
+If any condition fails, use "auto".
+
+- "choices": the due decision has a bounded set of natural alternatives and two examples help her decide. Return exactly two representative, materially different outcomes. Neither option may be a required step versus delay/refusal. The consequence must persist for at least two beats or define the result.
+- "free": her exact words, personal feeling, boundary, interpretation, title/message, creative idea or open request matter, and preset cards would flatten many valid answers. The line must ask a direct open question, not narrow her to an either/or pair.
+- "auto": continue required actions, setup, travel, transitions, reactions, process steps, time skips, sensory detail and romantic payoff. Do not ask a question. The continuation must visibly advance the wish.
+
+Never manufacture a stop to keep the interface busy. Usually stop at most once per major phase, not once per image. After two auto beats, check for the next natural unresolved decision, but continue if none is due. If the current image was caused by her choice or free answer, first show at least one story-led consequence before another decision.
+
+Apply the same gate to every kind of wish. These are examples of classification, never scripts:
+- cooking: the dish or overall style can be choices; recipe steps are auto; a personal inscription can be free;
+- outing: destination or major activity can be choices; travel and arrival are auto; what she wants to say there can be free;
+- movie/date: genre can be choices; setup and watching are auto; a personal interpretation can be free;
+- creative project: concept or material can be choices; execution is auto; title or message can be free;
+- emotional conversation: her own explanation is usually free; his listening and response are auto; a real boundary or desired outcome can be choices only when due;
+- exploration: route or investigation target can be choices; walking and searching are auto; her theory can be free.
 
 Return ONLY JSON:
-{"scene": string, "narration": string, "line": string|null, "memory": string, "moved": boolean, "interaction": "auto"|"choices"|"free", "choices": [{"label": string, "prompt": string, "cut": boolean}], "continuation": {"label": string, "prompt": string, "cut": boolean}|null}
+{"scene": string, "narration": string, "line": string|null, "memory": string, "moved": boolean, "interaction": "auto"|"choices"|"free", "decisionKey": string|null, "decisionReason": string, "choices": [{"label": string, "prompt": string, "cut": boolean}], "continuation": {"label": string, "prompt": string, "cut": boolean}|null}
 
 - scene: one English sentence describing the current image's location and visible state.
 - narration: 中文，第二人称，一到两句，简洁具体，说明眼前画面和活动进展，不描写玩家外貌，不重复无意义的暧昧动作。
 - line: 一句自然、口语化的简短中文台词，不加名字、引号或冒号。interaction 为 "choices" 或 "free" 时可以直接询问尚未决定的具体偏好；为 "auto" 时只能陈述或返回 null，不能提问。绝不复述幕后规则。
-- memory: English, at most 80 words. Preserve the original goal, accepted player preferences (flavour, cake type, etc.), completed milestones and the next unresolved decision. Do not treat proposed options as accepted facts.
+- memory: English, at most 80 words. Preserve the goal, current phase, accepted preferences, completed milestones and next unresolved decision. Do not treat proposed options as accepted facts.
 - moved: whether the current scene changed location from the supplied prior scene description. A single still does not show a journey.
 - interaction: your pacing decision. It controls whether the story automatically continues, shows two cards, or waits for free input.
-- choices: exactly two only when interaction is "choices"; otherwise []. They must materially change or define what follows. They need not be emotional opposites. Do not force "approach him versus avoid him", and do not replace a cake decision with "taste his finger versus look away". Both may be affectionate; their consequences must differ.
-  - label: 中文，四到十八个字，明确表达玩家要决定或做的事，例如“草莓奶油戚风”与“巧克力慕斯”，不要含糊地只写“听他的”。
+- decisionKey: for choices/free, a stable English snake_case name for the semantic decision, such as destination, activity_plan, desired_outcome or personal_message. Use null for auto. Never reuse a resolved key or rename it to ask the same question again.
+- decisionReason: one short English sentence explaining which gate conditions passed or why the story continues automatically. Internal only.
+- choices: exactly two only when interaction is "choices"; otherwise []. They must materially change or define what follows. They need not be emotional opposites.
+  - label: 中文，四到十八个字，明确表达玩家要决定或做的事，不要含糊地只写“听他的”。
   - prompt: the English visual prompt for AFTER she chooses this option, including its concrete consequence, following the mode-specific rules above.
   - cut: true for a location/time jump; do not prolong a scene just to keep cut false.
 - continuation: required only when interaction is "auto"; otherwise null. Use the same label/prompt/cut shape. Its label is internal progress text, not a player choice.`;
@@ -187,7 +208,7 @@ const intentSystem = (him: Character, mustLeaveOpening: boolean, still = false) 
 ${sharedRules(him, still)}
 
 The five-second waking prologue is already over. Start the requested activity now, at its first useful decision; do not write another waking reaction, a getting-ready scene or an obligatory teasing scene.
-For cake-making, show the kitchen workspace and him ready to help choose a cake. Keep undecided flavour and cake type open. Do not portray a finished strawberry cake before she has chosen strawberry.
+Show the activity at its first concrete working moment. Preserve every detail already stated in the wish, and leave other personal preferences visually undecided until they are actually needed.
 ${mustLeaveOpening
   ? "PACING DECISION: return cut: true. Open directly on the activity; no bedroom, getting dressed or leaving home."
   : "PACING DECISION: the player explicitly requested staying in bed. Remain there only as the wish requires."}
@@ -202,7 +223,7 @@ const typedSystem = (him: Character, still = false) => `Turn the player's latest
 
 ${sharedRules(him, still)}
 
-Use the original wish, current scene, recorded choices and the latest answer together. A short answer such as "巧克力慕斯" is a concrete cake decision: show that recipe starting, not another request to choose a cake or another romantic prelude. Do not invent remaining personal preferences; leave them for the next question.
+Use the original wish, current scene, recorded choices and the latest answer together. Treat a short answer as a concrete decision in context: show its consequence immediately rather than asking the same question again or adding another romantic prelude. Do not invent remaining personal preferences; leave them until they are needed.
 Skip routine waiting and repeated gestures. Keep the same place unless the answer or progress needs a change. If the player explicitly changes direction, honour that change.
 
 Return ONLY JSON:
@@ -227,6 +248,11 @@ const VISIBLE_META =
 function visibleText(value: unknown, max: number): string {
   const text = str(value, max);
   return text && !VISIBLE_META.test(text) ? text : "";
+}
+
+function readDecisionKey(value: unknown): string {
+  const key = str(value, 48);
+  return /^[a-z][a-z0-9_]{1,47}$/.test(key) ? key : "";
 }
 
 /** Pull the first {...} out of a reply, for when JSON mode still wraps it. */
@@ -289,6 +315,7 @@ export async function tellNext(args: {
   wish?: string;
   scene?: string;
   decisions?: string[];
+  resolvedDecisionKeys?: string[];
   still?: boolean;
   opening?: boolean;
   automaticBeats?: number;
@@ -298,6 +325,7 @@ export async function tellNext(args: {
   const prompt =
     `ORIGINAL PLAYER WISH: ${args.wish || "Follow the player's current activity."}\n` +
     `ACCEPTED PLAYER ACTIONS: ${JSON.stringify(args.decisions ?? [])}\n` +
+    `RESOLVED DECISION KEYS: ${JSON.stringify(args.resolvedDecisionKeys ?? [])}\n` +
     `PREVIOUS SCENE: ${args.scene || (args.opening ? OPENING_SCENE : "Read the current image." )}\n` +
     `STORY SO FAR AND ACCEPTED DECISIONS: ${args.memory || (args.opening ? openingMemory() : "The main activity is beginning.")}\n` +
     `CAUSE OF THE CURRENT SCENE (player action or story-led progress): ${args.attempted}\n` +
@@ -308,8 +336,8 @@ export async function tellNext(args: {
       : "") +
     `BEAT: ${args.beat}\n\n` +
     (args.still
-      ? "One independent still is supplied. Read this moment and immediately offer the next meaningful activity decision."
-      : "Read the supplied chronological frames and write the next meaningful activity decision.");
+      ? "One independent still is supplied. Read this moment, apply the decision gate, and either advance it or stop at the next due decision."
+      : "Read the supplied chronological frames, apply the decision gate, and either advance them or stop at the next due decision.");
 
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
@@ -347,9 +375,13 @@ export async function tellNext(args: {
               : choices.length === CHOICE_COUNT
                 ? "choices"
                 : null;
+      const decisionKey = readDecisionKey(data.decisionKey);
+      const resolved = new Set(args.resolvedDecisionKeys ?? []);
       if (!interaction || !narration) continue;
       if (interaction === "choices" && choices.length !== CHOICE_COUNT) continue;
       if (interaction === "auto" && !continuation) continue;
+      if (args.playerLed && interaction !== "auto") continue;
+      if (interaction !== "auto" && (!decisionKey || resolved.has(decisionKey))) continue;
       const rawLine = visibleText(data.line, 120);
       return {
         scene: str(data.scene, 400),
@@ -360,6 +392,8 @@ export async function tellNext(args: {
         memory: str(data.memory, 600),
         moved: data.moved === true,
         interaction,
+        decisionKey: interaction === "auto" ? null : decisionKey,
+        decisionReason: str(data.decisionReason, 240),
         freeOnly: interaction === "free",
         choices: interaction === "choices" ? choices : [],
         continuation: interaction === "auto" ? continuation : null,

@@ -44,6 +44,10 @@ export interface Beat {
   moved: boolean;
   /** The storyteller decides whether this beat advances or waits for her. */
   interaction: "auto" | "choices" | "free";
+  /** Stable semantic key for the unresolved decision; null for story-led beats. */
+  decisionKey: string | null;
+  /** Internal explanation of why this beat should or should not stop. */
+  decisionReason: string;
   /** True when this moment asks for her own words, with no preset cards. */
   freeOnly: boolean;
   /** The two meaningful next moves when interaction is choices. */

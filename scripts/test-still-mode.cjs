@@ -79,6 +79,8 @@ function directorHarness({ failOn = [], freeOnly = true, loadPortrait, paintOver
           scene: "current scene", narration: "他看着你。", line: null,
           memory: "completed scene", moved: false,
           interaction: freeOnly ? "free" : "choices", freeOnly,
+          decisionKey: freeOnly ? "personal_response" : "seaside_direction",
+          decisionReason: "The answer changes what happens next.",
           choices: freeOnly ? [] : choices, continuation: null,
         };
       },
@@ -387,6 +389,7 @@ test("story read failure keeps the generated still and retries only the story", 
   const normal = {
     scene: "cake kitchen", narration: "料理台已经摆好。", line: "想做什么味道？",
     memory: "They are making a cake.", moved: false, freeOnly: false, choices,
+    decisionKey: "cake_kind", decisionReason: "The recipe depends on this choice.",
   };
   const h = directorHarness({
     freeOnly: false,
@@ -418,13 +421,14 @@ test("accepted activity decisions and original wish reach subsequent story calls
   const latestRead = h.calls.reads.at(-1);
   assert.equal(latestRead.wish, "想去海边");
   assert.deepEqual(Array.from(latestRead.decisions), ["走近他"]);
+  assert.deepEqual(Array.from(latestRead.resolvedDecisionKeys), ["seaside_direction"]);
   await h.director.submitTyped("巧克力慕斯");
   await settle();
   assert.equal(h.calls.typedInputs.at(-1).wish, "想去海边");
   assert.deepEqual(Array.from(h.calls.typedInputs.at(-1).decisions), ["走近他"]);
 });
 
-test("cake pacing prompt asks for concrete choices and still prompts are standalone", async () => {
+test("decision framework comes from any wish and still prompts are standalone", async () => {
   const calls = [];
   const story = loader({
     "./llm": {
@@ -434,6 +438,8 @@ test("cake pacing prompt asks for concrete choices and still prompts are standal
           return JSON.stringify({
             scene: "A cake workspace", narration: "他把模具放到你面前。", line: "想做哪一种？",
             memory: "They decide which cake to make.", moved: false, freeOnly: false,
+            interaction: "choices", decisionKey: "cake_kind",
+            decisionReason: "The recipe cannot begin until its kind is chosen.",
             choices: [
               { label: "草莓奶油戚风", prompt: "A complete kitchen scene with strawberry ingredients.", cut: false },
               { label: "巧克力慕斯", prompt: "A complete kitchen scene with chocolate and a mousse ring.", cut: false },
@@ -452,7 +458,7 @@ test("cake pacing prompt asks for concrete choices and still prompts are standal
   assert.ok(intent);
   assert.equal(intent.cut, true);
   assert.match(calls[0].system, /first useful decision/);
-  assert.match(calls[0].system, /Keep undecided flavour and cake type open/);
+  assert.match(calls[0].system, /no activity is the default template/);
   assert.match(calls[0].system, /INDEPENDENT STILL IMAGE/);
   assert.match(intent.prompt, /standalone scene illustration/);
   assert.doesNotMatch(intent.prompt, /Sound:/);
@@ -465,10 +471,53 @@ test("cake pacing prompt asks for concrete choices and still prompts are standal
   });
   assert.deepEqual(Array.from(beat.choices, choice => choice.label), ["草莓奶油戚风", "巧克力慕斯"]);
   assert.match(calls[1].prompt, /ORIGINAL PLAYER WISH: 一起做蛋糕/);
+  assert.match(calls[1].prompt, /RESOLVED DECISION KEYS: \[\]/);
   assert.match(calls[1].system, /must either resolve one meaningful decision or visibly advance/);
-  assert.match(calls[1].system, /do not replace a cake decision/);
+  assert.match(calls[1].system, /Apply the same gate to every kind of wish/);
+  assert.match(calls[1].system, /emotional conversation/);
   assert.doesNotMatch(calls[1].system, /CLOSES THE DISTANCE/);
   assert.ok(beat.choices.every(choice => choice.prompt.includes("standalone scene illustration")));
+});
+
+test("resolved semantic decisions are rejected even when the labels are new", async () => {
+  let call = 0;
+  const story = loader({
+    "./llm": {
+      llmCall: async () => {
+        call++;
+        if (call === 1) {
+          return JSON.stringify({
+            scene: "A seaside path", narration: "海风从栏杆外吹来。", line: "想沿哪边走？",
+            memory: "They are walking by the sea.", moved: false,
+            interaction: "choices", decisionKey: "destination",
+            decisionReason: "The route would change the destination.",
+            choices: [
+              { label: "往灯塔方向", prompt: "He walks toward the lighthouse.", cut: false },
+              { label: "往礁石方向", prompt: "He walks toward the rocks.", cut: false },
+            ],
+            continuation: null,
+          });
+        }
+        return JSON.stringify({
+          scene: "A seaside path", narration: "他带着你沿已经选好的方向往前走。", line: null,
+          memory: "They continue along the chosen seaside route.", moved: false,
+          interaction: "auto", decisionKey: null,
+          decisionReason: "The destination is already resolved, so walking should continue.",
+          choices: [],
+          continuation: { label: "走到海边", prompt: "He reaches the chosen seaside viewpoint.", cut: false },
+        });
+      },
+    },
+  })("lib/story.ts");
+
+  const beat = await story.tellNext({
+    frames: ["seaside-still"], memory: "The destination was chosen.", attempted: "去海边",
+    previousLabels: [], resolvedDecisionKeys: ["destination"], beat: 3,
+    style: "anime", him, wish: "想去海边散步", still: true,
+  });
+  assert.equal(call, 2);
+  assert.equal(beat.interaction, "auto");
+  assert.equal(beat.decisionKey, null);
 });
 
 test("mid-story answer uses the ongoing-story system and player_answer field", async () => {
@@ -502,7 +551,8 @@ test("player-facing text never exposes prompt rules", async () => {
           return JSON.stringify({
             scene: "A cake kitchen", narration: "你们已经来到厨房。",
             line: "想做仅与我们今天相关的蛋糕？", memory: "They are choosing a cake.",
-            moved: true, freeOnly: false, choices: [
+            moved: true, freeOnly: false, interaction: "choices",
+            decisionKey: "cake_kind", decisionReason: "The recipe needs a kind.", choices: [
               { label: "草莓奶油戚风", prompt: "A strawberry cake workspace.", cut: false },
               { label: "巧克力慕斯", prompt: "A chocolate mousse workspace.", cut: false },
             ],
@@ -510,7 +560,9 @@ test("player-facing text never exposes prompt rules", async () => {
         }
         return JSON.stringify({
           scene: "A cake kitchen", narration: "你们已经来到厨房。", line: "想做什么口味？",
-          memory: "They are choosing a cake.", moved: true, freeOnly: false, choices: [
+          memory: "They are choosing a cake.", moved: true, freeOnly: false,
+          interaction: "choices", decisionKey: "cake_kind",
+          decisionReason: "The recipe needs a kind.", choices: [
             { label: "草莓奶油戚风", prompt: "A strawberry cake workspace.", cut: false },
             { label: "巧克力慕斯", prompt: "A chocolate mousse workspace.", cut: false },
           ],
@@ -561,6 +613,8 @@ test("storyteller can auto-advance an unimportant beat without offering cards", 
           memory: "They chose chocolate chiffon and finished mixing the batter.",
           moved: false,
           interaction: "auto",
+          decisionKey: null,
+          decisionReason: "Baking is a required process step.",
           choices: [],
           continuation: {
             label: "送蛋糕进烤箱",
@@ -580,8 +634,8 @@ test("storyteller can auto-advance an unimportant beat without offering cards", 
   assert.equal(beat.choices.length, 0);
   assert.equal(beat.continuation.label, "送蛋糕进烤箱");
   assert.equal(beat.line, null);
-  assert.match(calls[0].system, /Never manufacture a choice/);
-  assert.match(calls[0].system, /which bowl to pick up/);
+  assert.match(calls[0].system, /Never manufacture a stop/);
+  assert.match(calls[0].system, /process steps/);
   assert.match(calls[0].prompt, /STORY-LED BEATS SINCE HER LAST INPUT: 1/);
   assert.equal(calls[0].model, "gemini-3.8-flash");
 });
@@ -596,6 +650,8 @@ test("storyteller can reserve a personal question for free input", async () => {
         memory: "The cake is finished except for the personal inscription.",
         moved: false,
         interaction: "free",
+        decisionKey: "cake_inscription",
+        decisionReason: "Her exact personal message matters.",
         choices: [],
         continuation: null,
       }),
@@ -616,12 +672,14 @@ test("director executes story-led continuation and stops at the next free questi
   const freeBeat = {
     scene: "finished cake", narration: "蛋糕已经做好。", line: "想在上面写什么？",
     memory: "The cake is ready for an inscription.", moved: false,
-    interaction: "free", freeOnly: true, choices: [], continuation: null,
+    interaction: "free", decisionKey: "cake_inscription",
+    decisionReason: "Her exact message matters.", freeOnly: true, choices: [], continuation: null,
   };
   const autoBeat = {
     scene: "cake batter", narration: "他把拌好的面糊倒进模具。", line: null,
     memory: "The batter is ready to bake.", moved: false,
-    interaction: "auto", freeOnly: false, choices: [],
+    interaction: "auto", decisionKey: null,
+    decisionReason: "Baking is required progress.", freeOnly: false, choices: [],
     continuation: { label: "烤好蛋糕", prompt: "finished cake after baking", cut: true },
   };
   const h = directorHarness({

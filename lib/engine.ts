@@ -100,6 +100,8 @@ interface Prepared {
   strip: string[];
   /** 中文 or English, for the storyteller's "THE PLAYER JUST TRIED" line. */
   attempted: string;
+  /** Semantic decision this player-led shot resolves. */
+  decisionKey?: string;
 }
 
 interface SceneRequest {
@@ -107,6 +109,7 @@ interface SceneRequest {
   action: string | null;
   kind: Shot["kind"];
   attempted: string;
+  decisionKey?: string;
   fromFrame?: string;
 }
 
@@ -143,6 +146,8 @@ export class Director {
   private memory = "";
   private wish = "";
   private decisions: string[] = [];
+  /** Semantic decision dimensions already answered, independent of wording. */
+  private resolvedDecisionKeys: string[] = [];
   /** Story-led beats since the player's last choice or free answer. */
   private automaticBeats = 0;
   /** Latest scene ground truth, for the free-text writer. */
@@ -437,6 +442,7 @@ export class Director {
     const choice = this.state.choices[index];
     if (!choice || !this.canFilm()) return;
     const token = this.token;
+    const decisionKey = this.pendingDecisionKey ?? undefined;
     this.retryRequest = null;
     this.retryRead = null;
     this.set({ phase: "filming", workingLabel: choice.label, choices: [], notice: null, canRetryScene: false });
@@ -445,6 +451,7 @@ export class Director {
       action: choice.label,
       kind: "choice",
       attempted: choice.label,
+      decisionKey,
       // A CUT deliberately drops the frame. Handing the old scene to a shot
       // that is supposed to be somewhere else makes h3 grow the new place out
       // of the old one — the bakery with the bedroom still in it. Without a
@@ -462,6 +469,7 @@ export class Director {
     if (!text || !him || !this.canFilm()) return;
     const token = this.token;
     const frame = this.lastFrame ?? "";
+    const decisionKey = this.pendingDecisionKey ?? undefined;
     this.retryRequest = null;
     this.retryRead = null;
     this.set({ phase: "filming", workingLabel: text, choices: [], notice: null, canRetryScene: false });
@@ -515,6 +523,7 @@ export class Director {
       action: shot.label,
       kind: "typed",
       attempted: text,
+      decisionKey,
       fromFrame: shot.cut ? undefined : frame || undefined,
     });
   }
@@ -549,6 +558,7 @@ export class Director {
     this.memory = "";
     this.wish = "";
     this.decisions = [];
+    this.resolvedDecisionKeys = [];
     this.automaticBeats = 0;
     this.scene = "";
     this.offered = [];
@@ -557,6 +567,7 @@ export class Director {
     this.cannedRequest = null;
     this.retryRequest = null;
     this.pendingChoices = [];
+    this.pendingDecisionKey = null;
     this.retryRead = null;
     this.clipEnded = false;
     this.wishSubmitted = false;
@@ -580,6 +591,8 @@ export class Director {
 
   /** The cards from the current beat, kept so a refusal can restore them. */
   private pendingChoices: Choice[] = [];
+  /** The decision answered by either a card or the free-input field. */
+  private pendingDecisionKey: string | null = null;
 
   /**
    * Film one shot and pull its frames. Returns null rather than throwing:
@@ -593,6 +606,7 @@ export class Director {
       action: string | null;
       kind: Shot["kind"];
       attempted: string;
+      decisionKey?: string;
       fromFrame?: string;
     }
   ): Promise<Prepared | null> {
@@ -630,6 +644,7 @@ export class Director {
         lastFrame: frames.lastFrame,
         strip: frames.strip,
         attempted: args.attempted,
+        decisionKey: args.decisionKey,
       };
     } catch (cause) {
       console.error("[generate] shot failed:", cause);
@@ -649,6 +664,7 @@ export class Director {
       action: string | null;
       kind: Shot["kind"];
       attempted: string;
+      decisionKey?: string;
       prompt: string;
       fromFrame?: string;
     }
@@ -682,6 +698,7 @@ export class Director {
         lastFrame: image,
         strip: [image],
         attempted: args.attempted,
+        decisionKey: args.decisionKey,
       };
     } catch (cause) {
       console.error("[paintStill] image failed:", cause);
@@ -723,6 +740,10 @@ export class Director {
     this.retryRead = null;
     if (prepared.shot.kind === "choice" || prepared.shot.kind === "typed") {
       this.decisions = [...this.decisions, prepared.attempted].slice(-20);
+      if (prepared.decisionKey && !this.resolvedDecisionKeys.includes(prepared.decisionKey)) {
+        this.resolvedDecisionKeys = [...this.resolvedDecisionKeys, prepared.decisionKey].slice(-20);
+      }
+      this.pendingDecisionKey = null;
       this.automaticBeats = 0;
     } else if (prepared.shot.kind === "auto") {
       this.automaticBeats += 1;
@@ -768,12 +789,12 @@ export class Director {
       frames: prepared.strip,
       wish: this.wish,
       decisions: this.decisions,
+      resolvedDecisionKeys: this.resolvedDecisionKeys,
       scene: this.scene,
       still: prepared.shot.still,
       opening: prepared.shot.kind === "opening",
       automaticBeats: this.automaticBeats,
       playerLed:
-        prepared.shot.kind === "intent" ||
         prepared.shot.kind === "choice" ||
         prepared.shot.kind === "typed",
       memory: this.memory,
@@ -859,6 +880,7 @@ export class Director {
     if (beat.interaction === "auto" && beat.continuation) {
       const next = beat.continuation;
       this.pendingChoices = [];
+      this.pendingDecisionKey = null;
       this.set({
         phase: "filming",
         narration: beat.narration,
@@ -890,6 +912,7 @@ export class Director {
    */
   private offer(beat: Beat, opts: { narration: boolean }) {
     this.pendingChoices = beat.choices;
+    this.pendingDecisionKey = beat.decisionKey;
     this.offered = [...this.offered.slice(-6), ...beat.choices.map((c) => c.label)];
     this.set({
       phase: "choosing",

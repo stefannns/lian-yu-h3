@@ -117,8 +117,9 @@ export async function POST(request: NextRequest) {
   let offered: string[] = [];
   let scene = "";
   let decisions: string[] = [];
+  let resolvedDecisionKeys: string[] = [];
   let automaticBeats = 0;
-  let playerLed = true;
+  let playerLed = false;
   for (let n = 2; n <= beats + 1; n++) {
     const read: Beat | null = await tellNext({
       frames: [],
@@ -131,6 +132,7 @@ export async function POST(request: NextRequest) {
       wish,
       scene,
       decisions,
+      resolvedDecisionKeys,
       automaticBeats,
       playerLed,
       call: callGeminiText,
@@ -152,6 +154,8 @@ export async function POST(request: NextRequest) {
         line: read.line,
         memory: read.memory,
         interaction: "free",
+        decisionKey: read.decisionKey,
+        decisionReason: read.decisionReason,
         choices: [],
         awaiting: "player_free_input",
       });
@@ -174,6 +178,8 @@ export async function POST(request: NextRequest) {
       line: read.line,
       memory: read.memory,
       interaction: read.interaction,
+      decisionKey: read.decisionKey,
+      decisionReason: read.decisionReason,
       choices: read.choices,
       took: read.interaction === "choices" ? index : null,
       label: taken.label,
@@ -188,6 +194,9 @@ export async function POST(request: NextRequest) {
       automaticBeats = 0;
       playerLed = true;
       decisions = [...decisions, taken.label].slice(-20);
+      if (read.decisionKey && !resolvedDecisionKeys.includes(read.decisionKey)) {
+        resolvedDecisionKeys = [...resolvedDecisionKeys, read.decisionKey].slice(-20);
+      }
     }
   }
 
