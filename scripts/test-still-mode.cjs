@@ -448,6 +448,62 @@ test("mid-story answer uses the ongoing-story system and player_answer field", a
   assert.equal(body.player_wish, undefined);
 });
 
+test("player-facing text never exposes prompt rules", async () => {
+  let call = 0;
+  const story = loader({
+    "./llm": {
+      llmCall: async () => {
+        call++;
+        if (call === 1) {
+          return JSON.stringify({
+            scene: "A cake kitchen", narration: "你们已经来到厨房。",
+            line: "想做仅与我们今天相关的蛋糕？", memory: "They are choosing a cake.",
+            moved: true, freeOnly: false, choices: [
+              { label: "草莓奶油戚风", prompt: "A strawberry cake workspace.", cut: false },
+              { label: "巧克力慕斯", prompt: "A chocolate mousse workspace.", cut: false },
+            ],
+          });
+        }
+        return JSON.stringify({
+          scene: "A cake kitchen", narration: "你们已经来到厨房。", line: "想做什么口味？",
+          memory: "They are choosing a cake.", moved: true, freeOnly: false, choices: [
+            { label: "草莓奶油戚风", prompt: "A strawberry cake workspace.", cut: false },
+            { label: "巧克力慕斯", prompt: "A chocolate mousse workspace.", cut: false },
+          ],
+        });
+      },
+    },
+  })("lib/story.ts");
+  const beat = await story.tellNext({
+    frames: ["cake-still"], memory: "", attempted: "一起做蛋糕", previousLabels: [],
+    beat: 1, style: "anime", him, wish: "一起做蛋糕", still: true,
+  });
+  assert.equal(call, 1);
+  assert.equal(beat.line, null);
+  assert.match(beat.narration, /来到厨房/);
+});
+
+test("the first generated-scene title preserves the player's own wish", async () => {
+  let releaseIntent;
+  const h = directorHarness({
+    paintOverride: async args => {
+      if (args.prompt.includes("seaside action")) {
+        await new Promise(resolve => { releaseIntent = resolve; });
+      }
+      return { image: `frame-${h.calls.paints.length}`, model: "test" };
+    },
+  });
+  const submitted = h.director.submitWish("一起做蛋糕");
+  await submitted;
+  await settle();
+  h.director.onClipEnded();
+  await settle();
+  assert.equal(h.director.getSnapshot().workingLabel, "一起做蛋糕");
+  assert.equal(typeof releaseIntent, "function");
+  releaseIntent();
+  await settle();
+});
+
 test("filming state visibly explains that the next still is generating", () => {
   const React = require("react");
   const { renderToStaticMarkup } = require("react-dom/server");

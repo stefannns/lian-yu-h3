@@ -408,7 +408,9 @@ export class Director {
     };
     this.cannedRequest = {
       prompt: wishShot.prompt,
-      action: wishShot.label,
+      // The first visible progress title is the player's own wish. The model's
+      // visual-prompt label is useful internally but must not rewrite her words.
+      action: wish.slice(0, 40),
       kind: "intent",
       attempted: wish,
       // The wish may cut straight to wherever it goes — the bakery, the sea —
