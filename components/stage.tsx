@@ -163,6 +163,7 @@ export function Stage({
     let cancelled = false;
     let timer: number | null = null;
     let stream: MediaStream | null = null;
+    let sawVisibleFrame = false;
     const samples: string[] = [];
 
     // Reactor tracks begin on the session's idle black frame. Chromium can
@@ -186,6 +187,24 @@ export function Stage({
       return canvas.toDataURL("image/jpeg", quality);
     };
 
+    const revealIfVisible = () => {
+      if (sawVisibleFrame || !video.videoWidth || !video.videoHeight || video.readyState < 2) return;
+      const canvas = document.createElement("canvas");
+      canvas.width = 16;
+      canvas.height = 9;
+      const context = canvas.getContext("2d", { willReadFrequently: true });
+      if (!context) return;
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+      let lit = 0;
+      for (let index = 0; index < pixels.length; index += 4) {
+        if (pixels[index] + pixels[index + 1] + pixels[index + 2] > 30) lit++;
+      }
+      if (lit < 4) return;
+      sawVisibleFrame = true;
+      setVisibleReactorClip(reactorClipId);
+    };
+
     void (async () => {
       try {
         const receivedStream = await reactorMediaStream();
@@ -201,6 +220,7 @@ export function Stage({
           await video.play();
         });
         timer = window.setInterval(() => {
+          revealIfVisible();
           const frame = grab(512, 0.75);
           if (frame) {
             samples.push(frame);
@@ -211,14 +231,16 @@ export function Stage({
           if (cancelled) return;
           if ("requestVideoFrameCallback" in video) {
             video.requestVideoFrameCallback(() => {
-              if (!cancelled) setVisibleReactorClip(reactorClipId);
+              if (!cancelled) revealIfVisible();
             });
-          } else {
-            setVisibleReactorClip(reactorClipId);
           }
         });
         if (cancelled) return;
         if (timer !== null) window.clearInterval(timer);
+        revealIfVisible();
+        if (!sawVisibleFrame) {
+          throw new Error("Reactor played the clip but delivered only black frames.");
+        }
         const finalSmall = grab(768, 0.8);
         if (finalSmall) samples.push(finalSmall);
         const lastFrame = grab(1344, 0.92);
