@@ -232,21 +232,30 @@ export async function reactorMediaStream(): Promise<MediaStream> {
   });
 }
 
-export async function playReactorClip(id: string): Promise<void> {
-  const current = playing.get(id);
-  if (current) return current;
+async function playReactorClipOnce(id: string, onStarted?: () => void): Promise<void> {
   const client = await ensureReactor();
   const playback = new Promise<void>((resolve, reject) => {
-    const timer = window.setTimeout(() => {
+    let started = false;
+    const finishTimer = window.setTimeout(() => {
       cleanup();
       reject(new Error("Reactor clip playback timed out."));
     }, 45_000);
+    const startTimer = window.setTimeout(() => {
+      cleanup();
+      reject(new Error("Reactor clip did not start within 8 seconds."));
+    }, 8_000);
     const matches = (message: ReactorMessage) => {
       const seen = clipId(message);
       return !seen || seen === id;
     };
     const onMessage = (message: ReactorMessage) => {
-      if (message.type === "clip_finished" && matches(message)) {
+      if (message.type === "clip_started" && matches(message)) {
+        if (!started) {
+          started = true;
+          window.clearTimeout(startTimer);
+          onStarted?.();
+        }
+      } else if (message.type === "clip_finished" && matches(message)) {
         cleanup();
         resolve();
       } else if (
@@ -256,11 +265,14 @@ export async function playReactorClip(id: string): Promise<void> {
         matches(message)
       ) {
         cleanup();
-        reject(new Error("Reactor could not play the clip."));
+        const data = payload(message);
+        const reason = typeof data.reason === "string" ? data.reason : "";
+        reject(new Error(reason ? `Reactor playback failed: ${reason}` : "Reactor could not play the clip."));
       }
     };
     const cleanup = () => {
-      window.clearTimeout(timer);
+      window.clearTimeout(startTimer);
+      window.clearTimeout(finishTimer);
       client.off("message", onMessage);
     };
     client.on("message", onMessage);
@@ -269,13 +281,22 @@ export async function playReactorClip(id: string): Promise<void> {
       reject(cause instanceof Error ? cause : new Error("Reactor did not accept playback."));
     });
   });
+  await playback;
+  generated.delete(id);
+}
+
+export function playReactorClip(id: string, onStarted?: () => void): Promise<void> {
+  const current = playing.get(id);
+  if (current) return current;
+
+  // Store the shared promise before the first connection await inside
+  // playReactorClipOnce. Effect remounts and development refreshes must join
+  // this one play command rather than race through duplicate sends.
+  const playback = playReactorClipOnce(id, onStarted).finally(() => {
+    if (playing.get(id) === playback) playing.delete(id);
+  });
   playing.set(id, playback);
-  try {
-    await playback;
-    generated.delete(id);
-  } finally {
-    playing.delete(id);
-  }
+  return playback;
 }
 
 export async function discardReactorClip(id: string): Promise<void> {

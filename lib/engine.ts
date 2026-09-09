@@ -428,7 +428,10 @@ export class Director {
       // rather than answering from the bed. See intentSystem in lib/story.ts.
       fromFrame: wishShot.cut ? undefined : prepared.lastFrame,
     };
-    this.canned = this.generate(token, this.cannedRequest);
+    // Still images may prepare under the opening. Paid Reactor clips stay
+    // strictly one-at-a-time: do not enqueue the wish scene until opening
+    // playback has completed successfully.
+    this.canned = this.videoOff ? this.generate(token, this.cannedRequest) : null;
   }
 
   /** Take one of the cards. Nothing is pre-filmed, so this films now. */
@@ -892,9 +895,11 @@ export class Director {
     // A shot already in the can — on the opening beat, the player's wish.
     // Narration is shown first and held long enough to read, because the
     // canned clip is usually ready before the player has looked at it.
-    if (this.canned) {
-      const queued = this.canned;
+    if (this.canned || this.cannedRequest) {
       const request = this.cannedRequest;
+      const queued = this.canned ?? (
+        request ? this.generate(token, request) : Promise.resolve(null)
+      );
       this.canned = null;
       this.cannedRequest = null;
       this.set({

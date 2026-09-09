@@ -153,6 +153,7 @@ export function Stage({
 }) {
   const liveVideo = useRef<HTMLVideoElement>(null);
   const [reactorMuted, setReactorMuted] = useState(false);
+  const [visibleReactorClip, setVisibleReactorClip] = useState<string | null>(null);
   const reactorClipId = state.currentShot?.reactorClipId;
 
   useEffect(() => {
@@ -187,7 +188,9 @@ export function Stage({
 
     void (async () => {
       try {
-        stream = await reactorMediaStream();
+        const receivedStream = await reactorMediaStream();
+        if (cancelled) return;
+        stream = receivedStream;
         for (const track of stream.getTracks()) {
           track.addEventListener("unmute", onTrackUnmute);
         }
@@ -204,7 +207,16 @@ export function Stage({
             if (samples.length > 10) samples.shift();
           }
         }, 900);
-        await playReactorClip(reactorClipId);
+        await playReactorClip(reactorClipId, () => {
+          if (cancelled) return;
+          if ("requestVideoFrameCallback" in video) {
+            video.requestVideoFrameCallback(() => {
+              if (!cancelled) setVisibleReactorClip(reactorClipId);
+            });
+          } else {
+            setVisibleReactorClip(reactorClipId);
+          }
+        });
         if (cancelled) return;
         if (timer !== null) window.clearInterval(timer);
         const finalSmall = grab(768, 0.8);
@@ -242,6 +254,9 @@ export function Stage({
     state.phase === "playing" &&
     state.currentShot !== null &&
     !state.currentShot.still;
+  const videoVisible =
+    showVideo &&
+    (!reactorClipId || visibleReactorClip === reactorClipId);
   const held = state.phase === "choosing" || state.phase === "writing";
 
   return (
@@ -293,7 +308,7 @@ export function Stage({
       )}
       {state.freezeFrame && (
         <img
-          className={`freeze${showVideo ? "" : " shown"}${held ? " dimmed" : ""}`}
+          className={`freeze${videoVisible ? "" : " shown"}${held ? " dimmed" : ""}`}
           src={state.freezeFrame}
           alt=""
         />
