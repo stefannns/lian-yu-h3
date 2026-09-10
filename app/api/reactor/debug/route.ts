@@ -1,5 +1,3 @@
-import { NextResponse } from "next/server";
-
 const SAFE_TEXT = /^[a-zA-Z0-9_.:-]{1,80}$/;
 
 export async function POST(request: Request) {

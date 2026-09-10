@@ -107,12 +107,17 @@ export async function POST(request: NextRequest) {
       // upstream status/body here is the only way to tell them apart later.
       const detail = await response.text().catch(() => "");
       console.error(`[/api/llm] Gemini ${response.status} for model ${model}:`, detail.slice(0, 500));
+      const status = response.status === 429
+        ? 429
+        : response.status >= 500
+          ? 503
+          : 502;
       return NextResponse.json(
         {
           error: `Gemini responded ${response.status}`,
           detail: detail.slice(0, 400),
         },
-        { status: 502 }
+        { status }
       );
     }
 

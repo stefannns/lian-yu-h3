@@ -42,7 +42,7 @@ import {
   type Character,
 } from "./character";
 import { PROMPT_WARN_CHARS } from "./limits";
-import { llmCall, type LlmCaller } from "./llm";
+import { LlmError, llmCall, type LlmCaller } from "./llm";
 import { STYLES, type StyleKey } from "./styles";
 import type { Beat, Choice } from "./types";
 
@@ -393,6 +393,7 @@ export async function tellNext(args: {
       };
     } catch (cause) {
       console.error(`[tellNext] attempt ${attempt + 1} failed:`, cause);
+      if (cause instanceof LlmError) return null;
     }
   }
   return null;
@@ -435,6 +436,7 @@ export async function writeIntentShot(
       }
     } catch (cause) {
       console.error(`[writeIntentShot] attempt ${attempt + 1} failed:`, cause);
+      if (cause instanceof LlmError) return null;
     }
   }
   return null;

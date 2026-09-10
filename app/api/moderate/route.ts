@@ -28,7 +28,9 @@ const MODERATION_TIMEOUT_MS = 20_000;
  * request that never gets a verdict is reported as `degraded` so the caller
  * can say the honest thing instead of accusing the player.
  */
-const MODERATION_ATTEMPTS = 3;
+// generateGemini owns the shared 429/5xx retry budget. Do not multiply those
+// attempts again at the route layer.
+const MODERATION_ATTEMPTS = 1;
 const MAX_ACTION_LENGTH = 280;
 
 const SYSTEM_PROMPT = `You moderate player actions typed into an all-ages AI video game.

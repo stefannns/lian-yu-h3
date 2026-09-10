@@ -39,58 +39,31 @@ function endpoint(): string {
   return `${base.replace(/\/+$/, "")}/api/llm`;
 }
 
-/**
- * Attempts per call, with backoff between them.
- *
- * Gemini returns 503 UNAVAILABLE — "this model is currently experiencing high
- * demand" — in bursts, and every writer in the game goes through here. Without
- * this, one overloaded minute presents as "the wish writer failed" and the run
- * dies on a fault that would have cleared in two seconds. Retried at this
- * level so no caller has to remember to.
- */
-const ATTEMPTS = 3;
-
-/** 5xx and 429 are the service; a 4xx will be just as wrong next time. */
-function transient(status: number): boolean {
-  return status >= 500 || status === 429;
-}
-
 export async function llmCall(args: LlmArgs): Promise<string> {
-  let last: LlmError | null = null;
-
-  for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
-    let response: Response;
-    try {
-      response = await fetch(endpoint(), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(args),
-      });
-    } catch (cause) {
-      // A dropped connection is as transient as a 503.
-      last = new LlmError(cause instanceof Error ? cause.message : "network error");
-      if (attempt === ATTEMPTS) break;
-      await new Promise((done) => setTimeout(done, attempt * 900));
-      continue;
-    }
-
-    const body = (await response.json().catch(() => ({}))) as {
-      output?: string;
-      error?: string;
-      detail?: string;
-    };
-    if (response.ok && typeof body.output === "string") return body.output;
-
-    last = new LlmError(
-      body.error ?? `LLM request failed (${response.status})`,
-      body.detail
-    );
-    if (!transient(response.status) || attempt === ATTEMPTS) break;
-    console.warn(`[llm] attempt ${attempt} failed (${response.status}), retrying`);
-    await new Promise((done) => setTimeout(done, attempt * 900));
+  let response: Response;
+  try {
+    response = await fetch(endpoint(), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(args),
+    });
+  } catch (cause) {
+    // The server may already have completed a billed request. Retrying from
+    // the browser would be an uncorrelated duplicate; the server transport
+    // owns the only retry budget.
+    throw new LlmError(cause instanceof Error ? cause.message : "network error");
   }
 
-  throw last ?? new LlmError("LLM request failed");
+  const body = (await response.json().catch(() => ({}))) as {
+    output?: string;
+    error?: string;
+    detail?: string;
+  };
+  if (response.ok && typeof body.output === "string") return body.output;
+  throw new LlmError(
+    body.error ?? `LLM request failed (${response.status})`,
+    body.detail
+  );
 }
 
 /** Extract the first {...} object from a reply. Only needed off JSON mode. */

@@ -28,6 +28,23 @@ export class GeminiTransportError extends Error {
   }
 }
 
+function responseRetryAfterMs(response: Response, detail: string): number {
+  const header = response.headers.get("retry-after");
+  const seconds = header ? Number(header) : Number.NaN;
+  const headerDelay = Number.isFinite(seconds)
+    ? seconds * 1_000
+    : header
+      ? Date.parse(header) - Date.now()
+      : 0;
+  const bodyMatch = /"retryDelay"\s*:\s*"([0-9]+(?:\.[0-9]+)?)s"/.exec(detail);
+  const bodyDelay = bodyMatch ? Number(bodyMatch[1]) * 1_000 : 0;
+  return Math.max(
+    Number.isFinite(headerDelay) ? headerDelay : 0,
+    Number.isFinite(bodyDelay) ? bodyDelay : 0,
+    0
+  );
+}
+
 async function vertexToken(): Promise<string | null> {
   try {
     const { GoogleAuth } = await import("google-auth-library");
@@ -43,7 +60,7 @@ async function vertexToken(): Promise<string | null> {
 }
 
 /** Send one server-side generateContent request without exposing credentials. */
-export async function generateGemini({
+async function generateGeminiWithRetry({
   model,
   system,
   parts,
@@ -94,11 +111,48 @@ export async function generateGemini({
     ...(system ? { systemInstruction: { parts: [{ text: system }] } } : {}),
   };
 
-  return fetch(url, {
-    method: "POST",
-    headers,
-    body: JSON.stringify(payload),
-    signal: AbortSignal.timeout(timeoutMs),
-    cache: "no-store",
-  });
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const response = await fetch(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(timeoutMs),
+      cache: "no-store",
+    });
+    const transient = response.status === 429 || response.status >= 500;
+    if (!transient || attempt === 3) return response;
+
+    const detail = await response.text().catch(() => "");
+    const waitHint = responseRetryAfterMs(response, detail);
+    if (waitHint > 120_000) return new Response(detail, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: response.headers,
+    });
+    const baseDelay = response.status === 429 ? 15_000 : 2_000;
+    const delay = Math.max(
+      waitHint,
+      baseDelay * 2 ** (attempt - 1) + Math.floor(Math.random() * 2_000)
+    );
+    console.warn("[gemini] retrying transient failure", {
+      status: response.status,
+      model,
+      attempt,
+      delayMs: delay,
+    });
+    await new Promise((done) => setTimeout(done, delay));
+  }
+
+  throw new GeminiTransportError("Gemini retry loop ended unexpectedly.");
+}
+
+// Moderation, shot writing and scene reading can arrive from different API
+// routes. Serialize them inside this server process so one player action
+// cannot create a burst against Vertex shared capacity.
+let geminiQueue: Promise<void> = Promise.resolve();
+
+export function generateGemini(request: GeminiRequest): Promise<Response> {
+  const result = geminiQueue.then(() => generateGeminiWithRetry(request));
+  geminiQueue = result.then(() => undefined, () => undefined);
+  return result;
 }

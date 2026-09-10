@@ -329,10 +329,7 @@ export class Director {
     }
   }
 
-  /**
-   * The player's wish. Moderation and the shot writer run in parallel; both
-   * are hidden behind the opening clip, which starts playing immediately.
-   */
+  /** The player's wish. Moderate first, then write, to avoid a Vertex burst. */
   async submitWish(text: string) {
     if (this.state.phase !== "intake" || this.wishSubmitted) return;
     const him = this.him;
@@ -342,16 +339,13 @@ export class Director {
     this.wishSubmitted = true;
     this.set({ phase: "filming", workingLabel: "……", notice: null });
 
-    const [moderation, written] = await Promise.all([
-      fetch("/api/moderate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: wish }),
-      })
-        .then((res) => (res.ok ? res.json() : { allowed: false }))
-        .catch(() => ({ allowed: false })),
-      writeIntentShot(wish, this.style, him, !isStayInBedWish(wish), this.videoOff),
-    ]);
+    const moderation = await fetch("/api/moderate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: wish }),
+    })
+      .then((res) => (res.ok ? res.json() : { allowed: false }))
+      .catch(() => ({ allowed: false }));
     if (intakeToken !== this.token) return;
 
     const wishCheck = moderation as { allowed?: boolean; degraded?: boolean };
@@ -373,6 +367,15 @@ export class Director {
       });
       return;
     }
+
+    const written = await writeIntentShot(
+      wish,
+      this.style,
+      him,
+      !isStayInBedWish(wish),
+      this.videoOff
+    );
+    if (intakeToken !== this.token) return;
 
     // Only an accepted, submitted wish may start paid visual generation.
     // This intentionally trades a little startup latency for predictable cost.
@@ -481,25 +484,13 @@ export class Director {
     this.retryRead = null;
     this.set({ phase: "filming", workingLabel: text, choices: [], notice: null, canRetryScene: false });
 
-    const [moderation, written] = await Promise.all([
-      fetch("/api/moderate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text }),
-      })
-        .then((res) => (res.ok ? res.json() : { allowed: false }))
-        .catch(() => ({ allowed: false })),
-      writeTypedShot({
-        text,
-        wish: this.wish,
-        decisions: this.decisions,
-        still: this.videoOff,
-        memory: this.memory,
-        scene: this.scene,
-        style: this.style,
-        him,
-      }),
-    ]);
+    const moderation = await fetch("/api/moderate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    })
+      .then((res) => (res.ok ? res.json() : { allowed: false }))
+      .catch(() => ({ allowed: false }));
     if (token !== this.token) return;
 
     const typedCheck = moderation as { allowed?: boolean; degraded?: boolean };
@@ -515,6 +506,18 @@ export class Director {
       });
       return;
     }
+
+    const written = await writeTypedShot({
+      text,
+      wish: this.wish,
+      decisions: this.decisions,
+      still: this.videoOff,
+      memory: this.memory,
+      scene: this.scene,
+      style: this.style,
+      him,
+    });
+    if (token !== this.token) return;
 
     const shot = written ?? {
       label: text,

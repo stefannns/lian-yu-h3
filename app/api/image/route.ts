@@ -73,10 +73,18 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ image: toDataUri(bytes), aspect });
   } catch (cause) {
     const status = cause instanceof ImageGenError ? cause.status : undefined;
-    console.error("[/api/image] failed", { status, type: cause instanceof Error ? cause.name : "unknown" });
+    const retryAfterMs = cause instanceof ImageGenError ? cause.retryAfterMs : undefined;
+    console.error("[/api/image] failed", {
+      status,
+      retryAfterMs,
+      type: cause instanceof Error ? cause.name : "unknown",
+    });
+    const headers = status === 429
+      ? { "Retry-After": String(Math.ceil((retryAfterMs ?? 30_000) / 1_000)) }
+      : undefined;
     return NextResponse.json(
       { error: imageFailureMessage(cause), upstreamStatus: status },
-      { status: status === 429 ? 429 : 502 }
+      { status: status === 429 ? 429 : 502, headers }
     );
   }
 }
