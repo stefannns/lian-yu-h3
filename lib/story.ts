@@ -92,18 +92,18 @@ export function dress(action: string, style: StyleKey, still = false): string {
 }
 
 /**
- * Names the reference images positionally, because ref2v addresses them that
- * way — "Image 1", "Image 2". A prompt that never says which is the room and
- * which is the boy leaves h3 to guess, and it guesses wrong often enough to
- * matter. The engine owns this rather than the storyteller: image order is a
- * property of the API call, not of the story.
+ * Tell H3 which continuity source the API supplied. A composed scene frame is
+ * animated as-is; a retained clip frame continues the previous camera and
+ * setting. The engine owns this because it chooses the API input.
  */
-export function imageKey(args: { frame: boolean; portrait: boolean }): string {
-  if (!args.portrait) return "";
-  if (!args.frame) {
-    return "The uploaded starting frame is the young man; keep his identity in the new setting. ";
+export function imageKey(args: { frame: boolean; continuation: boolean }): string {
+  if (args.continuation) {
+    return "Continue directly from the previous clip's retained final frame: same setting, light, viewpoint and man. ";
   }
-  return "Continue the uploaded starting frame: same room, light, viewpoint and man. ";
+  if (args.frame) {
+    return "Animate the uploaded 16:9 scene starting frame; keep its man, setting, light and first-person viewpoint. ";
+  }
+  return "";
 }
 
 const sharedRules = (him: Character, still = false) => `You write a first-person romantic story driven by the player's chosen activity.

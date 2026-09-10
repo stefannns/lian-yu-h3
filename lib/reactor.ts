@@ -4,7 +4,6 @@ import { Reactor, type ReactorMessage } from "@reactor-team/js-sdk";
 import { PROMPT_WARN_CHARS } from "./limits";
 
 export const REACTOR_MODEL = "reactor/fast-h3";
-const MAX_PAID_CLIPS_PER_PAGE = 1;
 const SAFE_CLIP_SECONDS = 5.167;
 
 export interface ReactorClip {
@@ -23,7 +22,7 @@ let resetting: Promise<void> | null = null;
 const generated = new Set<string>();
 const waiters = new Map<string, Waiter>();
 const playing = new Map<string, Promise<void>>();
-let paidClipReservations = 0;
+let generationInFlight = false;
 let mockCanvas: HTMLCanvasElement | null = null;
 let mockStream: MediaStream | null = null;
 
@@ -285,51 +284,59 @@ export async function filmShot(args: {
   duration: number;
   resolution: "480P" | "768P";
   fromFrame?: string;
-  portrait?: string;
+  continueFromClipId?: string;
   signal?: AbortSignal;
 }): Promise<ReactorClip> {
   args.signal?.throwIfAborted();
-  if (paidClipReservations >= MAX_PAID_CLIPS_PER_PAGE) {
-    trace("budget_blocked", { limit: MAX_PAID_CLIPS_PER_PAGE });
-    throw new Error("视频测试的单段消费上限已触发；本页不会再生成付费片段。");
+  if (Boolean(args.fromFrame) === Boolean(args.continueFromClipId)) {
+    throw new Error("Reactor video needs exactly one starting frame source.");
   }
-  // Reserve synchronously, before any await. Concurrent renders, retries and
-  // hot refreshes cannot race through the check and enqueue extra clips.
-  paidClipReservations++;
-  trace("budget_reserved", { used: paidClipReservations });
-  if (resetting) await resetting;
-  const client = await ensureReactor();
-  const frame = args.fromFrame ?? args.portrait;
-  const startingFrame = frame
-    ? await client.uploadFile(dataUriBlob(frame), { name: `beat-${args.beat}.jpg` })
-    : undefined;
-  args.signal?.throwIfAborted();
+  if (generationInFlight) throw new Error("A video clip is already being generated.");
 
-  const prompt = args.prompt.slice(0, PROMPT_WARN_CHARS);
-  trace("enqueue_start", { beat: args.beat, seconds: SAFE_CLIP_SECONDS });
-  const reply = await client.sendCommand("enqueue", {
-    prompt,
-    seed: args.seed + args.beat,
-    seconds: SAFE_CLIP_SECONDS,
-    metadata: JSON.stringify({ beat: args.beat }),
-    ...(startingFrame ? { starting_frame: startingFrame } : {}),
-  });
-  if (!reply) {
-    const error = client.getLastError();
-    throw new Error(error?.message ?? "Reactor did not accept the clip.");
-  }
-  const id = clipId(reply);
-  if (!id) throw new Error("Reactor enqueue reply had no clip id.");
-  trace("enqueue_accepted", { clip: id.slice(0, 12) });
+  // Set synchronously before the first await. React remounts and repeated
+  // actions cannot enqueue two paid clips at the same time.
+  generationInFlight = true;
   try {
-    await waitUntilGenerated(id);
+    if (resetting) await resetting;
+    const client = await ensureReactor();
+    const startingFrame = args.fromFrame
+      ? await client.uploadFile(dataUriBlob(args.fromFrame), { name: "beat-" + args.beat + ".jpg" })
+      : undefined;
     args.signal?.throwIfAborted();
-  } catch (cause) {
-    generated.delete(id);
-    await client.sendCommand("pop", { clip_id: id });
-    throw cause;
+
+    const prompt = args.prompt.slice(0, PROMPT_WARN_CHARS);
+    trace("enqueue_start", {
+      beat: args.beat,
+      seconds: SAFE_CLIP_SECONDS,
+      source: startingFrame ? "starting_frame" : "previous_clip",
+    });
+    const reply = await client.sendCommand("enqueue", {
+      prompt,
+      seed: args.seed + args.beat,
+      seconds: SAFE_CLIP_SECONDS,
+      metadata: JSON.stringify({ beat: args.beat }),
+      ...(startingFrame ? { starting_frame: startingFrame } : {}),
+      ...(args.continueFromClipId ? { continue_from_clip_id: args.continueFromClipId } : {}),
+    });
+    if (!reply) {
+      const error = client.getLastError();
+      throw new Error(error?.message ?? "Reactor did not accept the clip.");
+    }
+    const id = clipId(reply);
+    if (!id) throw new Error("Reactor enqueue reply had no clip id.");
+    trace("enqueue_accepted", { clip: id.slice(0, 12) });
+    try {
+      await waitUntilGenerated(id);
+      args.signal?.throwIfAborted();
+    } catch (cause) {
+      generated.delete(id);
+      await client.sendCommand("pop", { clip_id: id });
+      throw cause;
+    }
+    return { clipId: id };
+  } finally {
+    generationInFlight = false;
   }
-  return { clipId: id };
 }
 
 export async function reactorMediaStream(): Promise<MediaStream> {

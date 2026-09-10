@@ -63,11 +63,11 @@ export function Intake({
         title={
           videoOff
             ? "每一幕生成一张静帧，不调用视频服务"
-            : "每一幕是十秒视频，由 h3 生成"
+            : "每一幕约五秒视频，由 H3 按需生成"
         }
       >
         <span className="mode-dot" aria-hidden />
-        {videoOff ? "无视频模式" : "视频测试 · 限一段"}
+        {videoOff ? "无视频模式" : "视频模式 · 按幕生成"}
       </button>
 
       <div className="intake-inner">

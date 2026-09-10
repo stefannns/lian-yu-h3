@@ -111,6 +111,7 @@ interface SceneRequest {
   attempted: string;
   decisionKey?: string;
   fromFrame?: string;
+  continueFromPrevious?: boolean;
 }
 
 /**
@@ -308,14 +309,13 @@ export class Director {
           references: this.portrait ? [this.portrait] : [],
         });
       } catch (cause) {
-        // A failed paint falls back to a cold t2v opening rather than
-        // ending the run before it starts.
+        // Never spend H3 credits on a cold start with an invented face or
+        // setting. The player can retry after the establishing frame succeeds.
         console.error("[prepareOpening] first frame paint failed:", cause);
+        return null;
       }
       if (token !== this.token) return null;
 
-      // Without a first frame the opening is a cold start — fine for video,
-      // and in 无视频模式 it simply means the first beat has no picture.
       return await this.generate(token, {
         prompt: dress(openingShotPrompt(him), this.style),
         action: null,
@@ -427,9 +427,9 @@ export class Director {
       action: wish.slice(0, 40),
       kind: "intent",
       attempted: wish,
-      // The wish may cut straight to wherever it goes — the bakery, the sea —
-      // rather than answering from the bed. See intentSystem in lib/story.ts.
-      fromFrame: wishShot.cut ? undefined : prepared.lastFrame,
+      // A new location gets its own Nano-composed 16:9 starting frame.
+      // Staying in this scene chains from Reactor's retained final frame.
+      continueFromPrevious: !wishShot.cut,
     };
     // Still images may prepare under the opening. Paid Reactor clips stay
     // strictly one-at-a-time: do not enqueue the wish scene until opening
@@ -462,12 +462,9 @@ export class Director {
       kind: "choice",
       attempted: choice.label,
       decisionKey,
-      // A CUT deliberately drops the frame. Handing the old scene to a shot
-      // that is supposed to be somewhere else makes h3 grow the new place out
-      // of the old one — the bakery with the bedroom still in it. Without a
-      // frame it films from his portrait alone: new place, same person.
-      // Also null in a text-only run, where there is no frame at all.
-      fromFrame: choice.cut ? undefined : (this.lastFrame ?? undefined),
+      // Cuts get a fresh scene frame; continuous action uses the previous
+      // Reactor clip directly, without re-uploading a sampled JPEG.
+      continueFromPrevious: !choice.cut,
     });
   }
 
@@ -478,7 +475,6 @@ export class Director {
     const text = raw.trim().slice(0, 280);
     if (!text || !him || !this.canFilm()) return;
     const token = this.token;
-    const frame = this.lastFrame ?? "";
     const decisionKey = this.pendingDecisionKey ?? undefined;
     this.retryRequest = null;
     this.retryRead = null;
@@ -534,7 +530,7 @@ export class Director {
       kind: "typed",
       attempted: text,
       decisionKey,
-      fromFrame: shot.cut ? undefined : frame || undefined,
+      continueFromPrevious: !shot.cut,
     });
   }
 
@@ -613,35 +609,59 @@ export class Director {
    */
   private async generate(
     token: number,
-    args: {
-      prompt: string;
-      action: string | null;
-      kind: Shot["kind"];
-      attempted: string;
-      decisionKey?: string;
-      fromFrame?: string;
-    }
+    args: SceneRequest
   ): Promise<Prepared | null> {
     try {
       const beat = this.state.beat + 1;
       if (this.videoOff) return this.paintStill(token, { ...args, beat });
+
+      let startFrame = args.fromFrame;
+      const continueFromClipId = args.continueFromPrevious
+        ? this.state.currentShot?.reactorClipId
+        : undefined;
+      if (args.continueFromPrevious && !continueFromClipId) {
+        throw new Error("The previous Reactor clip is unavailable for continuation.");
+      }
+
+      // Every cut starts from a purpose-built landscape scene. The portrait is
+      // only an identity reference for Nano; it is never uploaded to H3 as a
+      // 3:4 starting frame.
+      if (!startFrame && !continueFromClipId) {
+        if (!this.portrait) throw new Error("The character portrait is unavailable.");
+        startFrame = await paintFrame({
+          prompt:
+            "Image 1 is the male lead identity reference only. Create a new 16:9 first frame " +
+            "for the upcoming video. Preserve his face, hair and adult appearance. Compose " +
+            "the exact new setting and first-person camera view from the scene prompt; do not " +
+            "copy the portrait background or pose. Freeze the action at its clear starting " +
+            "moment. No text, captions, borders or interface. " +
+            args.prompt,
+          seed: this.seed + beat,
+          width: 1280,
+          height: 720,
+          references: [this.portrait],
+        });
+        if (token !== this.token) return null;
+      }
+
       const clip = await filmShot({
-        prompt: `${imageKey({
-          frame: Boolean(args.fromFrame),
-          portrait: Boolean(this.portrait),
-        })}${args.prompt}`,
+        prompt: imageKey({
+          frame: Boolean(startFrame),
+          continuation: Boolean(continueFromClipId),
+        }) + args.prompt,
         seed: this.seed,
         beat,
         duration: args.kind === "opening" ? OPENING_SHOT_SECONDS : SHOT_SECONDS,
         resolution: RESOLUTION,
-        fromFrame: args.fromFrame,
-        portrait: this.portrait ?? undefined,
+        fromFrame: startFrame,
+        continueFromClipId,
       });
       if (token !== this.token) {
         void discardReactorClip(clip.clipId);
         return null;
       }
 
+      const holdFrame = startFrame ?? this.lastFrame ?? "";
       return {
         shot: {
           beat,
@@ -652,9 +672,9 @@ export class Director {
           videoUrl: "",
           rawUrl: "",
           reactorClipId: clip.clipId,
-          thumb: args.fromFrame ?? this.portrait ?? "",
+          thumb: holdFrame,
         },
-        lastFrame: args.fromFrame ?? this.portrait ?? "",
+        lastFrame: holdFrame,
         strip: [],
         attempted: args.attempted,
         decisionKey: args.decisionKey,
@@ -951,7 +971,7 @@ export class Director {
         action: next.label,
         kind: "auto",
         attempted: next.label,
-        fromFrame: next.cut ? undefined : this.lastFrame ?? undefined,
+        continueFromPrevious: !next.cut,
       });
       return;
     }

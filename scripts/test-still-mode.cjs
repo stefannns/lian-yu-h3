@@ -48,8 +48,8 @@ const choices = [
 ];
 async function settle() { for (let i = 0; i < 40; i++) await Promise.resolve(); }
 
-function directorHarness({ failOn = [], freeOnly = true, loadPortrait, paintOverride, tellOverride } = {}) {
-  const calls = { paints: [], videos: 0, intent: 0, typed: 0, reads: [], typedInputs: [] };
+function directorHarness({ failOn = [], freeOnly = true, loadPortrait, paintOverride, tellOverride, videoImpl } = {}) {
+  const calls = { paints: [], videos: 0, videoArgs: [], intent: 0, typed: 0, reads: [], typedInputs: [] };
   const failures = new Set(failOn);
   const load = loader({
     "./visuals": {
@@ -62,7 +62,12 @@ function directorHarness({ failOn = [], freeOnly = true, loadPortrait, paintOver
       },
     },
     "./reactor": {
-      filmShot: async () => { calls.videos++; throw new Error("Unexpected video request"); },
+      filmShot: async (args) => {
+        calls.videos++;
+        calls.videoArgs.push(args);
+        if (videoImpl) return videoImpl(args, calls.videos);
+        throw new Error("Unexpected video request");
+      },
       reactorMediaStream: async () => { throw new Error("Unexpected Reactor stream"); },
       playReactorClip: async () => { throw new Error("Unexpected Reactor playback"); },
     },
@@ -73,7 +78,7 @@ function directorHarness({ failOn = [], freeOnly = true, loadPortrait, paintOver
     "./frames": { extractFrames: async () => { throw new Error("Unexpected video frames"); } },
     "./story": {
       dress: (action) => action,
-      imageKey: ({ frame, portrait }) => frame ? "scene + portrait: " : portrait ? "portrait: " : "",
+      imageKey: ({ frame, continuation }) => continuation ? "continue: " : frame ? "start frame: " : "",
       writeIntentShot: async () => { calls.intent++; return { label: "去海边", prompt: "seaside action", cut: true }; },
       writeTypedShot: async (args) => {
         calls.typed++;
@@ -373,7 +378,7 @@ test("Reactor token route mints a server-side session-scoped FastH3 token", asyn
   assert.doesNotMatch(JSON.stringify(response), /test-reactor-key/);
 });
 
-test("Reactor FastH3 enqueues a bounded prompt with an uploaded starting frame", async () => {
+test("Reactor FastH3 uses an uploaded first frame, then chains a second clip", async () => {
   let instance;
   class FakeReactor {
     constructor(options) {
@@ -381,6 +386,8 @@ test("Reactor FastH3 enqueues a bounded prompt with an uploaded starting frame",
       this.status = "disconnected";
       this.handlers = {};
       this.commands = [];
+      this.uploads = [];
+      this.clipNumber = 0;
       instance = this;
     }
     on(event, handler) { (this.handlers[event] ||= []).push(handler); }
@@ -388,16 +395,18 @@ test("Reactor FastH3 enqueues a bounded prompt with an uploaded starting frame",
     getStatus() { return this.status; }
     async connect() { this.status = "ready"; }
     async uploadFile(blob, options) {
-      this.upload = { blob, options };
-      return { uploadId: "upload-1", name: options.name, mimeType: blob.type, size: blob.size };
+      const upload = { blob, options };
+      this.uploads.push(upload);
+      return { uploadId: "upload-" + this.uploads.length, name: options.name, mimeType: blob.type, size: blob.size };
     }
     async sendCommand(command, data) {
       this.commands.push({ command, data });
       if (command !== "enqueue") return { type: command + "_accepted", data: {} };
-      const reply = { type: "clip_queued", data: { clip: { clip_id: "clip-1" } } };
+      const id = "clip-" + (++this.clipNumber);
+      const reply = { type: "clip_queued", data: { clip: { clip_id: id } } };
       queueMicrotask(() => {
         for (const handler of this.handlers.message || []) {
-          handler({ type: "clip_generated", data: { clip: { clip_id: "clip-1" } } });
+          handler({ type: "clip_generated", data: { clip: { clip_id: id } } });
         }
       });
       return reply;
@@ -420,18 +429,33 @@ test("Reactor FastH3 enqueues a bounded prompt with an uploaded starting frame",
       json: async () => ({ jwt: "jwt", expiresAt: Math.floor(Date.now() / 1000) + 3600 }),
     }),
   })("lib/reactor.ts");
-  const clip = await reactor.filmShot({
+
+  const first = await reactor.filmShot({
     prompt: "x".repeat(900), seed: 7, beat: 2, duration: 5, resolution: "768P",
     fromFrame: "data:image/jpeg;base64,aGVsbG8=",
   });
-  assert.equal(clip.clipId, "clip-1");
+  const second = await reactor.filmShot({
+    prompt: "continue", seed: 7, beat: 3, duration: 5, resolution: "768P",
+    continueFromClipId: first.clipId,
+  });
+
+  assert.equal(first.clipId, "clip-1");
+  assert.equal(second.clipId, "clip-2");
   assert.equal(instance.options.modelName, "reactor/fast-h3");
-  assert.equal(instance.upload.blob.type, "image/jpeg");
-  const enqueue = instance.commands.find(item => item.command === "enqueue").data;
-  assert.equal(enqueue.prompt.length, 780);
-  assert.equal(enqueue.seconds, 5.167);
-  assert.equal(enqueue.seed, 9);
-  assert.equal(enqueue.starting_frame.uploadId, "upload-1");
+  assert.equal(instance.uploads.length, 1);
+  assert.equal(instance.uploads[0].blob.type, "image/jpeg");
+  const enqueues = instance.commands.filter(item => item.command === "enqueue").map(item => item.data);
+  assert.equal(enqueues[0].prompt.length, 780);
+  assert.equal(enqueues[0].seconds, 5.167);
+  assert.equal(enqueues[0].seed, 9);
+  assert.equal(enqueues[0].starting_frame.uploadId, "upload-1");
+  assert.equal(enqueues[0].continue_from_clip_id, undefined);
+  assert.equal(enqueues[1].starting_frame, undefined);
+  assert.equal(enqueues[1].continue_from_clip_id, "clip-1");
+  await assert.rejects(
+    reactor.filmShot({ prompt: "bad", seed: 1, beat: 4, duration: 5, resolution: "768P" }),
+    /exactly one starting frame source/
+  );
 });
 
 test("every style produces a complete Reactor video prompt below 800 characters", () => {
@@ -446,6 +470,61 @@ test("every style produces a complete Reactor video prompt below 800 characters"
     assert.match(prompt, /First-person POV/);
     assert.match(prompt, /no spoken dialogue/);
   }
+});
+
+
+test("video director gives cuts fresh 16:9 frames and chains continuous clips", async () => {
+  const h = directorHarness({
+    videoImpl: async (_args, number) => ({ clipId: "clip-" + number }),
+  });
+  h.director.setVideoMode(false);
+  await h.director.submitWish("想去海边");
+  await settle();
+
+  assert.equal(h.calls.videos, 1);
+  assert.equal(h.calls.paints.length, 1);
+  assert.equal(h.calls.videoArgs[0].fromFrame, "frame-1");
+  assert.equal(h.calls.videoArgs[0].continueFromClipId, undefined);
+
+  h.director.onReactorClipEnded({
+    lastFrame: "opening-final", strip: ["opening-final"], thumb: "opening-thumb",
+  });
+  await settle();
+
+  assert.equal(h.calls.videos, 2);
+  assert.equal(h.calls.paints.length, 2);
+  assert.equal(h.calls.paints[1].width, 1280);
+  assert.equal(h.calls.paints[1].height, 720);
+  assert.equal(h.calls.paints[1].references.join(","), "portrait");
+  assert.match(h.calls.paints[1].prompt, /new 16:9 first frame/);
+  assert.equal(h.calls.videoArgs[1].fromFrame, "frame-2");
+  assert.equal(h.calls.videoArgs[1].continueFromClipId, undefined);
+
+  h.director.onReactorClipEnded({
+    lastFrame: "wish-final", strip: ["wish-final"], thumb: "wish-thumb",
+  });
+  await settle();
+  assert.equal(h.director.getSnapshot().phase, "choosing");
+
+  await h.director.submitTyped("靠近他");
+  await settle();
+  assert.equal(h.calls.videos, 3);
+  assert.equal(h.calls.paints.length, 2);
+  assert.equal(h.calls.videoArgs[2].fromFrame, undefined);
+  assert.equal(h.calls.videoArgs[2].continueFromClipId, "clip-2");
+});
+
+test("video opening stops before H3 when its 16:9 first frame fails", async () => {
+  const h = directorHarness({
+    failOn: [1],
+    videoImpl: async (_args, number) => ({ clipId: "clip-" + number }),
+  });
+  h.director.setVideoMode(false);
+  await h.director.submitWish("一起散步");
+  await settle();
+  assert.equal(h.calls.videos, 0);
+  assert.equal(h.director.getSnapshot().phase, "intake");
+  assert.match(h.director.getSnapshot().notice, /开场没有拍成/);
 });
 
 test("free-only recovery renders both retry and free input without a video element", () => {
