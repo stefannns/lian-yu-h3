@@ -7,7 +7,7 @@ const vm = require("node:vm");
 const ts = require("typescript");
 
 const root = path.resolve(__dirname, "..");
-const quiet = { log() {}, warn() {}, error() {} };
+const quiet = { log() {}, info() {}, warn() {}, error() {} };
 function loader(mocks = {}, globals = {}) {
   const cache = new Map();
   function load(file) {
@@ -217,7 +217,7 @@ test("reset discards a retry result that completes afterward", async () => {
   assert.equal(h.director.getSnapshot().videoOff, true);
 });
 
-function imageHarness(sequence, { adcFails = false } = {}) {
+function imageHarness(sequence, { adcFails = false, model = "gemini-3.1-flash-image" } = {}) {
   const calls = { requests: [], delays: [] };
   const load = loader({
     "google-auth-library": {
@@ -231,7 +231,7 @@ function imageHarness(sequence, { adcFails = false } = {}) {
   }, {
     process: { env: {
       GOOGLE_CLOUD_PROJECT: "test-project", GOOGLE_CLOUD_LOCATION: "global",
-      IMAGE_PROVIDER: "vertex", GEMINI_API_KEY: "unused-fallback-key",
+      IMAGE_PROVIDER: "vertex", VERTEX_IMAGE_MODEL: model, GEMINI_API_KEY: "unused-fallback-key",
     } },
     setTimeout: (callback, ms) => { calls.delays.push(ms); queueMicrotask(callback); },
     fetch: async (url, options) => {
@@ -262,12 +262,22 @@ test("429 and 503 retry with backoff and honor Retry-After on the same Vertex en
   assert.ok(h.calls.requests[0].url.startsWith("https://aiplatform.googleapis.com/"));
 });
 
-test("persistent 429 stops after four attempts and retains upstream status", async () => {
+test("persistent 429 stops after three attempts and retains upstream status", async () => {
   const h = imageHarness([{ status: 429 }]);
   await assert.rejects(h.generateImage(request), error => error.status === 429);
-  assert.equal(h.calls.requests.length, 4);
-  assert.equal(h.calls.delays.length, 3);
+  assert.equal(h.calls.requests.length, 3);
+  assert.equal(h.calls.delays.length, 2);
   assert.match(h.imageFailureMessage(new h.ImageGenError("private detail", 429)), /额度受限/);
+});
+
+test("Lite 429 falls back immediately to Flash once", async () => {
+  const h = imageHarness([{ status: 429 }, { status: 200 }], { model: "gemini-3.1-flash-lite-image" });
+  const bytes = await h.generateImage(request);
+  assert.equal(bytes.toString(), "hello");
+  assert.equal(h.calls.requests.length, 2);
+  assert.equal(h.calls.delays.length, 0);
+  assert.match(h.calls.requests[0].url, /gemini-3\.1-flash-lite-image/);
+  assert.match(h.calls.requests[1].url, /gemini-3\.1-flash-image/);
 });
 
 test("403 never retries and an overlong Retry-After defers to manual retry", async () => {
@@ -404,7 +414,7 @@ test("Reactor FastH3 enqueues a bounded prompt with an uploaded starting frame",
     "@reactor-team/js-sdk": { Reactor: FakeReactor },
     "./limits": { PROMPT_WARN_CHARS: 780 },
   }, {
-    window: windowMock, Blob, Uint8Array, atob, queueMicrotask,
+    window: windowMock, Blob, Uint8Array, atob, queueMicrotask, process: { env: { NODE_ENV: "test" } },
     fetch: async () => ({
       ok: true,
       json: async () => ({ jwt: "jwt", expiresAt: Math.floor(Date.now() / 1000) + 3600 }),

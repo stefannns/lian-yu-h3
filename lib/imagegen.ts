@@ -115,14 +115,17 @@ function splitDataUri(uri: string): { mime: string; data: string } | null {
  * Missing ADC is an error, never permission to switch billing to an API key.
  * Key-only installations without a Vertex selection use the Gemini API.
  */
-async function googleImage(request: ImageRequest): Promise<Buffer> {
+async function googleImage(request: ImageRequest, modelOverride?: string): Promise<Buffer> {
   const key =
     process.env.GOOGLE_IMAGE_API_KEY ||
     process.env.GOOGLE_API_KEY ||
     process.env.GEMINI_API_KEY;
   const project = process.env.GOOGLE_CLOUD_PROJECT?.trim();
   const location = process.env.GOOGLE_CLOUD_LOCATION?.trim() || "us-central1";
-  const model = process.env.VERTEX_IMAGE_MODEL?.trim() || "gemini-3.1-flash-lite-image";
+  const model = modelOverride ??
+    process.env.VERTEX_IMAGE_MODEL?.trim() ??
+    "gemini-3.1-flash-lite-image";
+  const startedAt = Date.now();
   const requiresVertex = Boolean(project) ||
     process.env.IMAGE_PROVIDER?.trim().toLowerCase() === "vertex" ||
     process.env.GEMINI_TRANSPORT?.trim().toLowerCase() === "vertex";
@@ -257,7 +260,14 @@ async function googleImage(request: ImageRequest): Promise<Buffer> {
   // but snake_case in some responses — accept both rather than guess.
   for (const part of body.candidates?.[0]?.content?.parts ?? []) {
     const data = part.inlineData?.data ?? part.inline_data?.data;
-    if (data) return Buffer.from(data, "base64");
+    if (data) {
+      console.info("[imagegen] generated", {
+        model,
+        durationMs: Date.now() - startedAt,
+        referenceCount: request.references?.length ?? 0,
+      });
+      return Buffer.from(data, "base64");
+    }
   }
 
   // No image in a 200. Say what the model said instead: a safety block, a
@@ -328,13 +338,28 @@ async function generateImageWithRetry(request: ImageRequest): Promise<Buffer> {
       return await provider(request);
     } catch (cause) {
       const status = cause instanceof ImageGenError ? cause.status : undefined;
+      const configuredModel =
+        process.env.VERTEX_IMAGE_MODEL?.trim() || "gemini-3.1-flash-lite-image";
+      if (
+        attempt === 1 &&
+        status === 429 &&
+        provider === googleImage &&
+        configuredModel === "gemini-3.1-flash-lite-image"
+      ) {
+        // Lite is fastest when its shared pool has room. Waiting 15 then 30
+        // seconds for that same pool made an ordinary scene take about a
+        // minute in practice. Flash has a separate capacity pool and kept the
+        // same portrait identity in our comparison, so use it once instead.
+        console.warn("[imagegen] Lite capacity exhausted; using Flash for this scene");
+        return googleImage(request, "gemini-3.1-flash-image");
+      }
       const transient = status === 429 || (status !== undefined && status >= 500);
       // Google's guidance is no more than two retries. 429 needs a much
       // longer recovery window than a transport/server error: the previous
       // 2/4/8-second sequence simply repeated inside the same DSQ window.
       const maxAttempts = transient ? 3 : cause instanceof ImageGenError ? 1 : 2;
       const waitHint = cause instanceof ImageGenError ? cause.retryAfterMs ?? 0 : 0;
-      if (attempt >= maxAttempts || waitHint > 120_000) throw cause;
+      if (attempt >= maxAttempts || waitHint >= 120_000) throw cause;
       const baseDelay = status === 429 ? 15_000 : 2_000;
       const delay = Math.max(
         waitHint,
