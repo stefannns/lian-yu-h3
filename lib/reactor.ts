@@ -24,6 +24,8 @@ const generated = new Set<string>();
 const waiters = new Map<string, Waiter>();
 const playing = new Map<string, Promise<void>>();
 let paidClipReservations = 0;
+let mockCanvas: HTMLCanvasElement | null = null;
+let mockStream: MediaStream | null = null;
 
 function trace(event: string, details: Record<string, string | number | boolean> = {}) {
   if (process.env.NODE_ENV !== "development") return;
@@ -33,6 +35,87 @@ function trace(event: string, details: Record<string, string | number | boolean>
     body: JSON.stringify({ event, details }),
     keepalive: true,
   }).catch(() => undefined);
+}
+
+function isMockHarness(): boolean {
+  return typeof window !== "undefined" &&
+    window.location.pathname === "/reactor-mock";
+}
+
+function ensureMockStream(): MediaStream {
+  if (mockStream) return mockStream;
+  const canvas = document.createElement("canvas");
+  canvas.width = 1344;
+  canvas.height = 768;
+  const context = canvas.getContext("2d");
+  if (!context || typeof canvas.captureStream !== "function") {
+    throw new Error("This browser cannot create the offline Reactor mock stream.");
+  }
+  context.fillStyle = "#000";
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  mockCanvas = canvas;
+  mockStream = canvas.captureStream(24);
+  trace("mock_stream_ready");
+  return mockStream;
+}
+
+function playMockClip(id: string, onStarted?: () => void): Promise<void> {
+  const current = playing.get(id);
+  if (current) return current;
+
+  const playback = new Promise<void>((resolve, reject) => {
+    try {
+      ensureMockStream();
+      const canvas = mockCanvas;
+      const context = canvas?.getContext("2d");
+      if (!canvas || !context) throw new Error("Offline Reactor mock canvas is unavailable.");
+      const begun = performance.now();
+      let announced = false;
+
+      const paint = (now: number) => {
+        const elapsed = now - begun;
+        // Hold black briefly, exactly like Reactor's idle stream. The Stage
+        // must keep its starting frame visible during this interval.
+        if (elapsed < 250) {
+          requestAnimationFrame(paint);
+          return;
+        }
+        if (!announced) {
+          announced = true;
+          trace("mock_clip_started", { clip: id });
+          onStarted?.();
+        }
+
+        const progress = Math.min(1, (elapsed - 250) / 2400);
+        const gradient = context.createLinearGradient(0, 0, canvas.width, canvas.height);
+        gradient.addColorStop(0, `hsl(${330 - progress * 40} 58% 24%)`);
+        gradient.addColorStop(1, `hsl(${34 + progress * 26} 78% 58%)`);
+        context.fillStyle = gradient;
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        context.fillStyle = "rgba(255,255,255,.9)";
+        context.beginPath();
+        context.arc(220 + progress * 900, 350, 72, 0, Math.PI * 2);
+        context.fill();
+        context.fillStyle = "#fff";
+        context.font = "600 54px sans-serif";
+        context.fillText("OFFLINE REACTOR MOCK", 330, 680);
+
+        if (progress < 1) {
+          requestAnimationFrame(paint);
+        } else {
+          trace("mock_clip_finished", { clip: id });
+          resolve();
+        }
+      };
+      requestAnimationFrame(paint);
+    } catch (cause) {
+      reject(cause);
+    }
+  }).finally(() => {
+    if (playing.get(id) === playback) playing.delete(id);
+  });
+  playing.set(id, playback);
+  return playback;
 }
 
 function record(value: unknown): RecordValue | null {
@@ -250,6 +333,7 @@ export async function filmShot(args: {
 }
 
 export async function reactorMediaStream(): Promise<MediaStream> {
+  if (isMockHarness()) return ensureMockStream();
   const client = await ensureReactor();
   const combined = (video: MediaStreamTrack) => {
     const stream = new MediaStream([video]);
@@ -346,6 +430,9 @@ async function playReactorClipOnce(id: string, onStarted?: () => void): Promise<
 }
 
 export function playReactorClip(id: string, onStarted?: () => void): Promise<void> {
+  if (isMockHarness() && id.startsWith("mock-")) {
+    return playMockClip(id, onStarted);
+  }
   const current = playing.get(id);
   if (current) return current;
 
