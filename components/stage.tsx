@@ -166,6 +166,20 @@ export function Stage({
     let sawVisibleFrame = false;
     const samples: string[] = [];
 
+    // An idle Reactor stream is black and may not have produced enough media
+    // for HTMLMediaElement.play() to settle yet. Never await that promise
+    // before sending Reactor's own `play` command or the two sides can
+    // deadlock: the element waits for media while Reactor waits for `play`.
+    // ReactorView uses the same best-effort, non-blocking attachment pattern.
+    const startElementPlayback = () => {
+      void video.play().catch(() => {
+        if (cancelled) return;
+        video.muted = true;
+        setReactorMuted(true);
+        void video.play().catch(() => undefined);
+      });
+    };
+
     // Reactor tracks begin on the session's idle black frame. Chromium can
     // keep rendering that frame when media starts unless the stream is
     // reattached on the track's unmute event. This mirrors ReactorView.
@@ -173,7 +187,7 @@ export function Stage({
       if (cancelled || !stream) return;
       video.srcObject = null;
       video.srcObject = stream;
-      void video.play().catch(() => undefined);
+      startElementPlayback();
     };
 
     const grab = (width: number, quality: number) => {
@@ -214,11 +228,7 @@ export function Stage({
           track.addEventListener("unmute", onTrackUnmute);
         }
         video.srcObject = stream;
-        await video.play().catch(async () => {
-          video.muted = true;
-          setReactorMuted(true);
-          await video.play();
-        });
+        startElementPlayback();
         timer = window.setInterval(() => {
           revealIfVisible();
           const frame = grab(512, 0.75);
