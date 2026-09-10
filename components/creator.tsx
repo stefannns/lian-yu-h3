@@ -240,12 +240,12 @@ export function Creator({
               {busy
                 ? "正 在 做 他"
                 : mode === "upload"
-                  ? "就 用 这 张"
+                  ? "生 成 立 绘"
                   : "做 出 来"}
             </button>
             <p className="hint" style={{ textAlign: "center", marginTop: 10 }}>
               {mode === "upload"
-                ? "以这张图作为他的立绘，保留原本的样子"
+                ? "会参考这张图生成当前画风的立绘，保留他的样子"
                 : "会为他生成一张立绘，确认后开始故事"}
             </p>
           </>

@@ -499,6 +499,57 @@ for (const route of ["image", "cast"]) {
 }
 
 
+test("uploaded character confirmation returns the generated portrait, not the source image", async () => {
+  const imageCalls = [];
+  const writes = [];
+  class MockImageGenError extends Error {
+    constructor(message, status) { super(message); this.status = status; }
+  }
+  const painted = Buffer.from("painted portrait");
+  const original = "data:image/jpeg;base64," + Buffer.from("original upload").toString("base64");
+  const load = loader({
+    "next/server": {
+      NextResponse: { json: (body, options) => ({ body, status: options?.status || 200 }) },
+    },
+    "node:fs/promises": {
+      mkdir: async () => {},
+      writeFile: async (file, data) => { writes.push({ file, data }); },
+    },
+    "@/lib/character": {
+      portraitPrompt: () => "portrait",
+      restylePrompt: () => "restyle uploaded identity",
+    },
+    "@/lib/styles": { DEFAULT_STYLE: "anime", isStyleKey: value => value === "anime" },
+    "@/lib/gemini": {
+      generateGemini: async () => ({
+        ok: true,
+        json: async () => ({ candidates: [{ content: { parts: [{
+          text: JSON.stringify({ name: "他", descriptor: "adult man", temperament: "kind" }),
+        }] } }] }),
+      }),
+    },
+    "@/lib/imagegen": {
+      ImageGenError: MockImageGenError,
+      generateImage: async args => { imageCalls.push(args); return painted; },
+      imageFailureMessage: () => "failed",
+      toDataUri: bytes => "data:image/jpeg;base64," + bytes.toString("base64"),
+    },
+  }, { process: { cwd: () => root, env: {} } });
+  const response = await load("app/api/cast/route.ts").POST({
+    json: async () => ({ mode: "upload", image: original, style: "anime" }),
+  });
+  assert.equal(response.status, 200);
+  assert.notEqual(response.body.portrait, original);
+  assert.equal(response.body.portrait, "data:image/jpeg;base64," + painted.toString("base64"));
+  assert.equal(imageCalls.length, 1);
+  assert.equal(imageCalls[0].aspect, "3:4");
+  assert.deepEqual(Array.from(imageCalls[0].references), [original]);
+  const sourceWrite = writes.find(item => item.file.endsWith("source.jpg"));
+  const portraitWrite = writes.find(item => item.file.endsWith("portrait-anime.jpg"));
+  assert.equal(sourceWrite.data.toString(), "original upload");
+  assert.equal(portraitWrite.data.toString(), "painted portrait");
+});
+
 test("every still is generated independently with only the portrait reference", async () => {
   const h = directorHarness({ freeOnly: false });
   await reachChoices(h);

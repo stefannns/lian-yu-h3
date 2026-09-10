@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { mkdir, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
-import { portraitPrompt, type Character } from "@/lib/character";
+import { portraitPrompt, restylePrompt, type Character } from "@/lib/character";
 import { generateGemini, type GeminiPart } from "@/lib/gemini";
 import { ImageGenError, generateImage, imageFailureMessage, toDataUri } from "@/lib/imagegen";
 import { DEFAULT_STYLE, isStyleKey } from "@/lib/styles";
@@ -25,7 +25,7 @@ import { DEFAULT_STYLE, isStyleKey } from "@/lib/styles";
  * in the text half of the pipeline.
  *
  *   POST { mode: "write",  name?, idea }       -> Gemini writes him, then paints him
- *   POST { mode: "upload", name?, image }      -> the image is his, Gemini reads it
+ *   POST { mode: "upload", name?, image }      -> Gemini reads him, Nano paints the selected look
  *
  * Both video and still-image play require a portrait. A failed paint returns
  * an error instead of creating an incomplete character for approval.
@@ -218,20 +218,39 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const bytes = dataUriToBuffer(source);
-    if (!bytes?.length) {
+    let portrait = source;
+    if (mode === "upload") {
+      try {
+        portrait = toDataUri(await generateImage({
+          prompt: restylePrompt(him, style),
+          aspect: "3:4",
+          references: [source],
+        }));
+      } catch (cause) {
+        const status = cause instanceof ImageGenError ? cause.status : undefined;
+        console.error("[/api/cast] uploaded portrait failed", {
+          status,
+          type: cause instanceof Error ? cause.name : "unknown",
+        });
+        return NextResponse.json(
+          { error: imageFailureMessage(cause), upstreamStatus: status },
+          { status: status === 429 ? 429 : 502 }
+        );
+      }
+    }
+
+    const sourceBytes = dataUriToBuffer(source);
+    const portraitBytes = dataUriToBuffer(portrait);
+    if (!sourceBytes?.length || !portraitBytes?.length) {
       return NextResponse.json({ error: "立绘读不出来，请再试一次。" }, { status: 502 });
     }
     const dir = path.join(CAST_DIR, him.id);
     await mkdir(dir, { recursive: true });
-    await writeFile(path.join(dir, "source.jpg"), bytes);
-    // Written characters already have a portrait in the selected look.
-    if (mode === "write") {
-      await writeFile(path.join(dir, `portrait-${style}.jpg`), bytes);
-    }
+    await writeFile(path.join(dir, "source.jpg"), sourceBytes);
+    await writeFile(path.join(dir, `portrait-${style}.jpg`), portraitBytes);
     await writeFile(path.join(dir, "character.json"), JSON.stringify(him, null, 2));
 
-    return NextResponse.json({ him, portrait: source });
+    return NextResponse.json({ him, portrait });
   } catch (cause) {
     const message = cause instanceof Error ? cause.message : "unknown";
     console.error("[/api/cast] failed:", message);
