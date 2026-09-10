@@ -47,7 +47,7 @@ import { STYLES, type StyleKey } from "./styles";
 import type { Beat, Choice } from "./types";
 
 /** Story planning needs stronger instruction-following than moderation/routing. */
-const STORY_MODEL = "gemini-3.8-flash";
+const STORY_MODEL = "gemini-3.5-flash-lite";
 
 /**
  * Every prompt that reaches h3 goes through here. Camera, sound and style

@@ -764,7 +764,7 @@ test("storyteller can auto-advance an unimportant beat without offering cards", 
   assert.match(calls[0].system, /Never manufacture a stop/);
   assert.match(calls[0].system, /process steps/);
   assert.match(calls[0].prompt, /STORY-LED BEATS SINCE HER LAST INPUT: 1/);
-  assert.equal(calls[0].model, "gemini-3.8-flash");
+  assert.equal(calls[0].model, "gemini-3.5-flash-lite");
 });
 
 test("storyteller can reserve a personal question for free input", async () => {
