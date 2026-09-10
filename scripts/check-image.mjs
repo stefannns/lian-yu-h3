@@ -14,7 +14,7 @@ for (const line of readFileSync(".env.local", "utf8").split("\n")) {
 
 const project = process.env.GOOGLE_CLOUD_PROJECT?.trim();
 const location = process.env.GOOGLE_CLOUD_LOCATION?.trim() || "us-central1";
-const model = process.env.VERTEX_IMAGE_MODEL?.trim() || "gemini-3.1-flash-image";
+const model = process.env.VERTEX_IMAGE_MODEL?.trim() || "gemini-3.1-flash-lite-image";
 const key = process.env.GOOGLE_IMAGE_API_KEY || process.env.GOOGLE_API_KEY;
 const sa = process.env.GOOGLE_APPLICATION_CREDENTIALS;
 
@@ -53,7 +53,7 @@ const r = await fetch(url, {
   headers,
   body: JSON.stringify({
     contents: [{ role: "user", parts: [{ text: "A single ripe red apple on a plain white table, soft daylight." }] }],
-    generationConfig: { responseModalities: ["TEXT", "IMAGE"], imageConfig: { aspectRatio: "3:4" } },
+    generationConfig: { responseModalities: ["TEXT", "IMAGE"], imageConfig: { aspectRatio: "3:4", imageSize: "1K" } },
   }),
 });
 const text = await r.text();

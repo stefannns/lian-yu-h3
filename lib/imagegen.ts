@@ -122,7 +122,7 @@ async function googleImage(request: ImageRequest): Promise<Buffer> {
     process.env.GEMINI_API_KEY;
   const project = process.env.GOOGLE_CLOUD_PROJECT?.trim();
   const location = process.env.GOOGLE_CLOUD_LOCATION?.trim() || "us-central1";
-  const model = process.env.VERTEX_IMAGE_MODEL?.trim() || "gemini-3.1-flash-image";
+  const model = process.env.VERTEX_IMAGE_MODEL?.trim() || "gemini-3.1-flash-lite-image";
   const requiresVertex = Boolean(project) ||
     process.env.IMAGE_PROVIDER?.trim().toLowerCase() === "vertex" ||
     process.env.GEMINI_TRANSPORT?.trim().toLowerCase() === "vertex";
@@ -192,11 +192,10 @@ async function googleImage(request: ImageRequest): Promise<Buffer> {
         contents: [{ role: "user", parts }],
         generationConfig: {
           responseModalities: modalities,
-          // aspectRatio only. imageSize is documented inconsistently across
-          // these models ("1K"/"2K" in one place, pixel strings in another),
-          // and a value the model rejects fails the entire request — whereas
-          // omitting it simply takes the default resolution.
-          imageConfig: { aspectRatio: request.aspect },
+          // 1K is enough for the game stage and is supported by every image
+          // model we allow here. Keeping it explicit prevents a future model
+          // default from silently increasing latency and cost.
+          imageConfig: { aspectRatio: request.aspect, imageSize: "1K" },
         },
       }),
       signal: AbortSignal.timeout(TIMEOUT_MS),
