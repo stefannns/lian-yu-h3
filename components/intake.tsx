@@ -67,7 +67,7 @@ export function Intake({
         }
       >
         <span className="mode-dot" aria-hidden />
-        {videoOff ? "无视频模式" : "视频模式"}
+        {videoOff ? "无视频模式" : "视频测试 · 限一段"}
       </button>
 
       <div className="intake-inner">

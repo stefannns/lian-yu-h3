@@ -4,6 +4,8 @@ import { Reactor, type ReactorMessage } from "@reactor-team/js-sdk";
 import { PROMPT_WARN_CHARS } from "./limits";
 
 export const REACTOR_MODEL = "reactor/fast-h3";
+const MAX_PAID_CLIPS_PER_PAGE = 1;
+const SAFE_CLIP_SECONDS = 5.167;
 
 export interface ReactorClip {
   clipId: string;
@@ -21,6 +23,17 @@ let resetting: Promise<void> | null = null;
 const generated = new Set<string>();
 const waiters = new Map<string, Waiter>();
 const playing = new Map<string, Promise<void>>();
+let paidClipReservations = 0;
+
+function trace(event: string, details: Record<string, string | number | boolean> = {}) {
+  if (process.env.NODE_ENV !== "development") return;
+  void fetch("/api/reactor/debug", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ event, details }),
+    keepalive: true,
+  }).catch(() => undefined);
+}
 
 function record(value: unknown): RecordValue | null {
   return value && typeof value === "object" ? value as RecordValue : null;
@@ -72,16 +85,41 @@ function failWaiter(id: string, message: string) {
   waiter.reject(new Error(message));
 }
 
+function markGenerated(id: string) {
+  generated.add(id);
+  const waiter = waiters.get(id);
+  if (!waiter) return;
+  window.clearTimeout(waiter.timer);
+  waiters.delete(id);
+  waiter.resolve();
+}
+
 function handleMessage(message: ReactorMessage) {
+  if ([
+    "clip_generated",
+    "clip_failed",
+    "clip_started",
+    "clip_finished",
+    "clip_stopped",
+    "command_error",
+    "session_reset",
+  ].includes(message.type)) {
+    trace(message.type, { clip: clipId(message).slice(0, 12) || "unknown" });
+  }
   if (message.type === "clip_generated") {
     const id = clipId(message);
     if (!id) return;
-    generated.add(id);
-    const waiter = waiters.get(id);
-    if (waiter) {
-      window.clearTimeout(waiter.timer);
-      waiters.delete(id);
-      waiter.resolve();
+    markGenerated(id);
+  } else if (message.type === "queue_update") {
+    // queue_update is Reactor's authoritative snapshot. It also recovers if a
+    // clip_generated broadcast is delayed or missed while the SDK reconnects.
+    const playout = payload(message).playout;
+    if (Array.isArray(playout)) {
+      for (const item of playout) {
+        const clip = record(item);
+        const id = clip?.clip_id ?? clip?.clipId;
+        if (typeof id === "string" && id) markGenerated(id);
+      }
     }
   } else if (message.type === "clip_failed") {
     const id = clipId(message);
@@ -115,9 +153,13 @@ async function ensureReactor(): Promise<Reactor> {
     if (!reactor) {
       reactor = client;
       client.on("message", handleMessage);
+      client.on("statusChanged", (status) => trace("status", { status }));
     }
+    trace("connect_start");
     await client.connect();
+    trace("connect_ready");
     await configure(client);
+    trace("session_configured");
     return client;
   })();
   try {
@@ -146,8 +188,9 @@ function waitUntilGenerated(id: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const timer = window.setTimeout(() => {
       waiters.delete(id);
+      trace("generation_timeout", { clip: id.slice(0, 12) });
       reject(new Error("Reactor clip generation timed out."));
-    }, 180_000);
+    }, 45_000);
     waiters.set(id, { resolve, reject, timer });
   });
 }
@@ -163,6 +206,14 @@ export async function filmShot(args: {
   signal?: AbortSignal;
 }): Promise<ReactorClip> {
   args.signal?.throwIfAborted();
+  if (paidClipReservations >= MAX_PAID_CLIPS_PER_PAGE) {
+    trace("budget_blocked", { limit: MAX_PAID_CLIPS_PER_PAGE });
+    throw new Error("视频测试的单段消费上限已触发；本页不会再生成付费片段。");
+  }
+  // Reserve synchronously, before any await. Concurrent renders, retries and
+  // hot refreshes cannot race through the check and enqueue extra clips.
+  paidClipReservations++;
+  trace("budget_reserved", { used: paidClipReservations });
   if (resetting) await resetting;
   const client = await ensureReactor();
   const frame = args.fromFrame ?? args.portrait;
@@ -172,10 +223,11 @@ export async function filmShot(args: {
   args.signal?.throwIfAborted();
 
   const prompt = args.prompt.slice(0, PROMPT_WARN_CHARS);
+  trace("enqueue_start", { beat: args.beat, seconds: SAFE_CLIP_SECONDS });
   const reply = await client.sendCommand("enqueue", {
     prompt,
     seed: args.seed + args.beat,
-    seconds: Math.max(5.167, Math.min(14.375, args.duration)),
+    seconds: SAFE_CLIP_SECONDS,
     metadata: JSON.stringify({ beat: args.beat }),
     ...(startingFrame ? { starting_frame: startingFrame } : {}),
   });
@@ -185,6 +237,7 @@ export async function filmShot(args: {
   }
   const id = clipId(reply);
   if (!id) throw new Error("Reactor enqueue reply had no clip id.");
+  trace("enqueue_accepted", { clip: id.slice(0, 12) });
   try {
     await waitUntilGenerated(id);
     args.signal?.throwIfAborted();
@@ -214,7 +267,11 @@ export async function reactorMediaStream(): Promise<MediaStream> {
     return stream;
   };
   const existing = client.getTrackByName("main_video");
-  if (existing) return combined(existing);
+  if (existing) {
+    trace("video_track_ready", { state: existing.readyState, muted: existing.muted });
+    return combined(existing);
+  }
+  trace("video_track_wait");
   return new Promise((resolve, reject) => {
     const timer = window.setTimeout(() => {
       client.off("trackReceived", onTrack);
@@ -226,6 +283,7 @@ export async function reactorMediaStream(): Promise<MediaStream> {
       client.off("trackReceived", onTrack);
       const video = client.getTrackByName("main_video");
       if (!video) return reject(new Error("Reactor video track is unavailable."));
+      trace("video_track_received", { state: video.readyState, muted: video.muted });
       resolve(combined(video));
     };
     client.on("trackReceived", onTrack);
@@ -234,6 +292,7 @@ export async function reactorMediaStream(): Promise<MediaStream> {
 
 async function playReactorClipOnce(id: string, onStarted?: () => void): Promise<void> {
   const client = await ensureReactor();
+  trace("play_prepare", { clip: id.slice(0, 12) });
   const playback = new Promise<void>((resolve, reject) => {
     let started = false;
     const finishTimer = window.setTimeout(() => {
@@ -276,6 +335,7 @@ async function playReactorClipOnce(id: string, onStarted?: () => void): Promise<
       client.off("message", onMessage);
     };
     client.on("message", onMessage);
+    trace("play_command", { clip: id.slice(0, 12) });
     void client.sendCommand("play", { clip_id: id }).catch((cause) => {
       cleanup();
       reject(cause instanceof Error ? cause : new Error("Reactor did not accept playback."));
