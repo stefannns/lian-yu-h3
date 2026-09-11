@@ -637,16 +637,9 @@ button {
   color: var(--rose-deep);
 }
 
-.style-hint {
-  font-size: 11px;
-  line-height: 1.7;
-  color: rgba(106, 90, 82, 0.72);
-}
-
 @media (max-width: 520px) {
   .style-row { grid-template-columns: 1fr; }
   .style-card { flex-direction: row; align-items: baseline; gap: 10px; }
-  .style-hint { font-size: 10px; }
 }
 
 /* ---------- 无视频模式 ---------------------------------------------------- */

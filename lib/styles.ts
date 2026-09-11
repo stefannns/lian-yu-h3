@@ -18,8 +18,6 @@ export type StyleKey = "anime" | "cg3d" | "real";
 export interface StylePreset {
   /** Shown on the picker card. */
   label: string;
-  /** One 中文 line under the label. */
-  hint: string;
   /** The clause appended to every video prompt. */
   prompt: string;
   /**
@@ -34,7 +32,6 @@ export interface StylePreset {
 export const STYLES: Record<StyleKey, StylePreset> = {
   anime: {
     label: "日系动画",
-    hint: "手绘赛璐璐，柔光，少女漫的空气感",
     prompt:
       "Japanese otome anime CG: refined adult proportions, crisp cel shading and ink lines, delicate background, warm romantic light; never childish or cartoonish.",
     still:
@@ -43,8 +40,7 @@ export const STYLES: Record<StyleKey, StylePreset> = {
       "delicate painted background.",
   },
   cg3d: {
-    label: "恋爱科幻 3D",
-    hint: "高精角色，冷暖电影光，亲密镜头感",
+    label: "3D动画",
     prompt:
       "Premium romantic sci-fi 3D game cinematic: refined adult face and proportions, luminous skin, groomed hair, detailed fabric, cool shadows, warm key light, shallow depth of field.",
     still:
@@ -55,7 +51,6 @@ export const STYLES: Record<StyleKey, StylePreset> = {
   },
   real: {
     label: "写实电影",
-    hint: "真人电影感，自然光，胶片颗粒",
     prompt:
       "Photoreal live-action cinema: attractive adult lead, natural light and skin texture, fine hair, shallow depth of field, subtle grain, muted film colour.",
     still:

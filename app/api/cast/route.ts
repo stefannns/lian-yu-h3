@@ -48,6 +48,7 @@ const MAX_IMAGE_CHARS = 11_000_000;
  * not branch: only the input differs — an idea, or a picture.
  */
 const WRITE_SYSTEM = `You write one 男主 (male love interest) for a first-person 乙女游戏.
+The character is always one unmistakably adult man. Never interpret any request as a woman, girl, feminine or androgynous character, child, couple, or group. Make his build, hair, and clothing description clearly read as an adult male romantic lead.
 
 Return ONLY JSON in exactly this shape:
 {"name": string, "descriptor": string, "temperament": string}

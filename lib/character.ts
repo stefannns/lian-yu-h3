@@ -125,10 +125,14 @@ export function descriptorPhrase(him: Character): string {
 /** His portrait prompt under one look. The cached anchor image. */
 export function portraitPrompt(him: Character, style: StyleKey): string {
   return (
-    `Character portrait of one person alone, full figure, standing naturally ` +
-    `against a plain neutral background, no props, no scenery, nobody else in ` +
-    `the image: ${descriptorPhrase(him)}. Warm soft morning light. ` +
-    `${STYLES[style].still}`
+    `Character portrait of exactly one handsome adult man, unmistakably male, ` +
+    `the romantic male lead of an otome game. Refined attractive adult male ` +
+    `features, clear masculine facial structure and body proportions; never a ` +
+    `woman, girl, feminine or androgynous character, child, couple, or group. ` +
+    `Full figure, standing naturally against a plain neutral background, with ` +
+    `no props or scenery: ${descriptorPhrase(him)}. Keep every requested ` +
+    `descriptor while preserving an unmistakably adult male appearance. Warm ` +
+    `soft morning light. ${STYLES[style].still}`
   );
 }
 
@@ -144,10 +148,13 @@ export function portraitPrompt(him: Character, style: StyleKey): string {
  */
 export function restylePrompt(_him: Character, style: StyleKey): string {
   return (
-    `Redraw the person in the reference image as a character portrait: full ` +
-    `figure, standing naturally against a plain neutral background, no props, ` +
-    `no scenery, nobody else. Keep their face, hair, build and clothing exactly ` +
-    `as in the reference — same person. ${STYLES[style].still}`
+    `The reference image is the identity reference for one adult man. Redraw ` +
+    `that same man as a handsome romantic male lead: full figure, standing ` +
+    `naturally against a plain neutral background, no props, no scenery, nobody ` +
+    `else. Keep his exact face, hair, build, clothing, sex, and identity from ` +
+    `the reference. Do not feminize him or turn him into a woman, girl, ` +
+    `androgynous character, child, couple, or group. The finished portrait must ` +
+    `show exactly one unmistakably adult man. ${STYLES[style].still}`
   );
 }
 

@@ -106,7 +106,6 @@ export function Intake({
                 onClick={() => onStyle(key)}
               >
                 <span className="style-name">{STYLES[key].label}</span>
-                <span className="style-hint">{STYLES[key].hint}</span>
               </button>
             ))}
           </div>
