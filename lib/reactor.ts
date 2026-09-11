@@ -268,8 +268,11 @@ async function ensureReactor(): Promise<Reactor> {
     const client = reactor ?? new Reactor({
       modelName: REACTOR_MODEL,
       jwt: getToken,
-      readyTimeoutMs: 15_000,
-      maxSessionAttempts: 1,
+      // Session creation is asynchronous on Reactor. Polling readiness does
+      // not enqueue a clip or spend generation credits; one attempt made a
+      // healthy cold session fail immediately with "not ready after 1 polls".
+      readyTimeoutMs: 30_000,
+      maxSessionAttempts: 20,
       maxSdpAttempts: 8,
       logLevel: "warn",
     });

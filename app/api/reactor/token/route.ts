@@ -4,6 +4,7 @@ const MODEL = "reactor/fast-h3";
 const TOKEN_LIFETIME_SECONDS = 300;
 const SESSION_LIFETIME_SECONDS = 180;
 const MAX_SESSIONS_PER_GRANT = 4;
+const TOKEN_REFRESH_MARGIN_SECONDS = 30;
 
 type TokenGrant = { jwt: string; expiresAt: number };
 
@@ -51,12 +52,14 @@ export async function POST() {
   }
 
   try {
-    // Return the same grant even when it is near expiry. Once it expires the
-    // browser must fail closed; only an intentional local server restart can
-    // mint another credential.
-    if (cachedGrant) {
+    // Reuse a live grant across refreshes, but never hand an expired JWT back
+    // to the SDK. Minting a token does not enqueue an H3 clip; filmShot does
+    // that only after the WebRTC session reports ready.
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    if (cachedGrant && cachedGrant.expiresAt > nowSeconds + TOKEN_REFRESH_MARGIN_SECONDS) {
       return NextResponse.json(cachedGrant, { headers: { "Cache-Control": "no-store" } });
     }
+    cachedGrant = null;
 
     grantRequest ??= issueGrant();
     const grant = await grantRequest;
