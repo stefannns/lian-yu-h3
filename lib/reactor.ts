@@ -268,12 +268,19 @@ async function ensureReactor(): Promise<Reactor> {
     const client = reactor ?? new Reactor({
       modelName: REACTOR_MODEL,
       jwt: getToken,
+      readyTimeoutMs: 15_000,
+      maxSessionAttempts: 1,
+      maxSdpAttempts: 8,
       logLevel: "warn",
     });
     if (!reactor) {
       reactor = client;
       client.on("message", handleMessage);
       client.on("statusChanged", (status) => trace("status", { status }));
+      client.on("error", (error) => trace("sdk_error", {
+        code: error.code || "unknown",
+        recoverable: error.recoverable,
+      }));
     }
     trace("connect_start");
     await client.connect();

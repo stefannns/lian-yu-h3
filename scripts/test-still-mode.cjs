@@ -374,7 +374,7 @@ test("Reactor token route mints a server-side session-scoped FastH3 token", asyn
   assert.equal(requests[0].options.headers["Reactor-API-Key"], "test-reactor-key");
   const grant = JSON.parse(requests[0].options.body).authorization_details[0];
   assert.deepEqual(grant.resources.models.match, ["reactor/fast-h3"]);
-  assert.equal(grant.constraints.max_sessions, 1);
+  assert.equal(grant.constraints.max_sessions, 4);
   assert.doesNotMatch(JSON.stringify(response), /test-reactor-key/);
 });
 
@@ -451,6 +451,9 @@ test("Reactor FastH3 uses an uploaded first frame, then chains a second clip", a
   assert.equal(first.clipId, "clip-1");
   assert.equal(second.clipId, "clip-2");
   assert.equal(instance.options.modelName, "reactor/fast-h3");
+  assert.equal(instance.options.readyTimeoutMs, 15_000);
+  assert.equal(instance.options.maxSessionAttempts, 1);
+  assert.equal(instance.options.maxSdpAttempts, 8);
   assert.equal(instance.uploads.length, 1);
   assert.equal(instance.uploads[0].blob.type, "image/jpeg");
   const enqueues = instance.commands.filter(item => item.command === "enqueue").map(item => item.data);
