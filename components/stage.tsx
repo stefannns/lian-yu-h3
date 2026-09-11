@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { DirectorState } from "@/lib/engine";
-import { playReactorClip, reactorMediaStream } from "@/lib/reactor";
+import { attachReactorAudio, playReactorClip, reactorMediaStream } from "@/lib/reactor";
 
 /**
  * The theater: the shot on screen, or a slow push-in on its frozen last
@@ -152,7 +152,6 @@ export function Stage({
   onRetry: () => void;
 }) {
   const liveVideo = useRef<HTMLVideoElement>(null);
-  const [reactorMuted, setReactorMuted] = useState(false);
   const [visibleReactorClip, setVisibleReactorClip] = useState<string | null>(null);
   const reactorClipId = state.currentShot?.reactorClipId;
 
@@ -163,6 +162,7 @@ export function Stage({
     let cancelled = false;
     let timer: number | null = null;
     let stream: MediaStream | null = null;
+    let detachAudio: (() => void) | null = null;
     let sawVisibleFrame = false;
     const samples: string[] = [];
 
@@ -172,12 +172,11 @@ export function Stage({
     // deadlock: the element waits for media while Reactor waits for `play`.
     // ReactorView uses the same best-effort, non-blocking attachment pattern.
     const startElementPlayback = () => {
-      void video.play().catch(() => {
-        if (cancelled) return;
-        video.muted = true;
-        setReactorMuted(true);
-        void video.play().catch(() => undefined);
-      });
+      // Video stays muted at the element level so autoplay is reliable.
+      // Reactor audio is already playing through the user-primed Web Audio
+      // context, with no delayed unmute control.
+      video.muted = true;
+      void video.play().catch(() => undefined);
     };
 
     // Reactor tracks begin on the session's idle black frame. Chromium can
@@ -224,6 +223,7 @@ export function Stage({
         const receivedStream = await reactorMediaStream();
         if (cancelled) return;
         stream = receivedStream;
+        detachAudio = attachReactorAudio(stream);
         for (const track of stream.getTracks()) {
           track.addEventListener("unmute", onTrackUnmute);
         }
@@ -274,6 +274,7 @@ export function Stage({
           track.removeEventListener("unmute", onTrackUnmute);
         }
       }
+      detachAudio?.();
       video.srcObject = null;
     };
   }, [reactorClipId, state.currentShot?.still, onReactorClipEnded, onReactorClipFailed]);
@@ -314,7 +315,7 @@ export function Stage({
               key={state.currentShot.reactorClipId}
               autoPlay
               playsInline
-              muted={reactorMuted}
+              muted
             />
           : <video
               key={state.currentShot.videoUrl}
@@ -323,20 +324,6 @@ export function Stage({
               playsInline
               onEnded={onClipEnded}
             />
-      )}
-      {showVideo && state.currentShot?.reactorClipId && reactorMuted && (
-        <button
-          className="audio-unmute"
-          onClick={() => {
-            if (liveVideo.current) {
-              liveVideo.current.muted = false;
-              void liveVideo.current.play();
-            }
-            setReactorMuted(false);
-          }}
-        >
-          开启声音
-        </button>
       )}
       {state.freezeFrame && (
         <img

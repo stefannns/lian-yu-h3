@@ -425,7 +425,7 @@ test("Reactor FastH3 uses an uploaded first frame, then chains a second clip", a
   };
   const reactor = loader({
     "@reactor-team/js-sdk": { Reactor: FakeReactor },
-    "./limits": { PROMPT_WARN_CHARS: 780 },
+    "./limits": { REACTOR_PROMPT_MAX_CHARS: 4000 },
   }, {
     window: windowMock, Blob, Uint8Array, atob, queueMicrotask,
     MediaStream: class {
@@ -440,7 +440,7 @@ test("Reactor FastH3 uses an uploaded first frame, then chains a second clip", a
   })("lib/reactor.ts");
 
   const first = await reactor.filmShot({
-    prompt: "x".repeat(900), seed: 7, beat: 2, duration: 5, resolution: "768P",
+    prompt: "x".repeat(4500), seed: 7, beat: 2, duration: 5, resolution: "768P",
     fromFrame: "data:image/jpeg;base64,aGVsbG8=",
   });
   const second = await reactor.filmShot({
@@ -454,7 +454,7 @@ test("Reactor FastH3 uses an uploaded first frame, then chains a second clip", a
   assert.equal(instance.uploads.length, 1);
   assert.equal(instance.uploads[0].blob.type, "image/jpeg");
   const enqueues = instance.commands.filter(item => item.command === "enqueue").map(item => item.data);
-  assert.equal(enqueues[0].prompt.length, 780);
+  assert.equal(enqueues[0].prompt.length, 4000);
   assert.equal(enqueues[0].seconds, 5.167);
   assert.equal(enqueues[0].seed, 9);
   assert.equal(enqueues[0].starting_frame.uploadId, "upload-1");
@@ -469,21 +469,24 @@ test("Reactor FastH3 uses an uploaded first frame, then chains a second clip", a
   );
 });
 
-test("every style produces a complete Reactor video prompt below 800 characters", () => {
+test("every style preserves POV and no-text guards in the full Reactor prompt", () => {
   const story = loader()("lib/story.ts");
   for (const style of ["anime", "cg3d", "real"]) {
-    const prompt = story.dress(
+    const prompt = story.imageKey({ frame: true, continuation: false }) + story.dress(
       "The young man opens the balcony door, steps into the sea breeze, then turns and offers his hand while the curtains move behind him. ".repeat(4),
       style,
       false
     );
-    assert.ok(prompt.length <= 780, `${style} prompt was ${prompt.length} characters`);
+    assert.ok(prompt.length <= 4000, `${style} prompt was ${prompt.length} characters`);
+    assert.match(prompt, /^NO ON-SCREEN TEXT OR SUBTITLES/);
     assert.match(prompt, /STRICT First-person POV/);
     assert.match(prompt, /completely off-screen/);
     assert.match(prompt, /Exactly one visible person/);
+    assert.match(prompt, /AUDIO TRACK ONLY/);
     assert.match(prompt, /adult male Mandarin voice/);
+    assert.match(prompt, /never transcribe or visualize it/);
     assert.match(prompt, /no female voice, no gibberish/);
-    assert.match(prompt, /No subtitles, captions, text/);
+    assert.match(prompt, /ABSOLUTELY NO on-screen text/);
     assert.match(prompt, /interface\.$/);
   }
 });

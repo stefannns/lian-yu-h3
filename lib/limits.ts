@@ -6,7 +6,8 @@
  */
 
 /**
- * Reactor FastH3 accepts at most 800 prompt characters. Keep a little room
- * below the wire limit so transport-level normalization cannot tip it over.
+ * Keep generated action prompts concise. Reactor itself accepts 4000
+ * characters; continuity and final safety clauses are added after this step.
  */
 export const PROMPT_WARN_CHARS = 780;
+export const REACTOR_PROMPT_MAX_CHARS = 4000;

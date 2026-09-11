@@ -180,7 +180,7 @@ export const POV_LEAD =
  * foreground corner, and it pads a quiet domestic frame with extras.
  */
 export const POV_GUARD =
-  "Exactly one visible person: the handsome adult man facing the camera. No viewer body, hands, hair, shadow or reflection; no other person, duplicate, third-person, over-the-shoulder, selfie, mirror shot or background people. No subtitles, captions, text, letters, logos, watermarks or interface.";
+  "Exactly one visible person: the handsome adult man facing the camera. No viewer body, hands, hair, shadow or reflection; no other person, duplicate, third-person, over-the-shoulder, selfie, mirror shot or background people. ABSOLUTELY NO on-screen text: no subtitles in any language, captions, letters, speech bubbles, signs, logos, watermarks or interface.";
 
 /**
  * MiniMax camera commands, in square brackets, up to three per bracket for a
@@ -199,14 +199,12 @@ export const SHOT_TAGS = true;
 export const DEFAULT_SHOT_TAG = "[Static shot]";
 
 /**
- * FastH3 generates its own soundtrack, and with dialogue unspecified it
- * babbles pseudo-language that sounds like neither Chinese nor Japanese and
- * wrecks a romantic beat. So every shot declares its sound and his lines are
- * delivered as on-screen 中文 text instead — which is the visual-novel
- * convention this genre already uses.
+ * FastH3 generates video and sound together. This clause keeps any incidental
+ * speech on the visible male lead's Mandarin voice and explicitly separates
+ * heard audio from text rendered into the image.
  */
 export const SOUND =
-  "Synchronized natural ambience and soft music. If speech occurs, it is one clear, warm adult male Mandarin voice from the man on screen; no female voice, no gibberish.";
+  "AUDIO TRACK ONLY: synchronized natural ambience and soft music. If speech occurs, it is heard only from the man on screen in one clear, warm adult male Mandarin voice; never transcribe or visualize it, no female voice, no gibberish.";
 
 /** Where the game opens, in English, for the painter and the storyteller. */
 export const OPENING_SCENE =

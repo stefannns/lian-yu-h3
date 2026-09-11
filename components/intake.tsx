@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { Character } from "@/lib/character";
+import { primeReactorAudio } from "@/lib/reactor";
 import { STYLES, STYLE_ORDER, type StyleKey } from "@/lib/styles";
 
 /**
@@ -45,7 +46,9 @@ export function Intake({
   // Nothing can start until the visual world and the person in it are chosen.
   const ready = wish.trim().length > 0 && !busy && him !== null && styleChosen;
   const send = () => {
-    if (ready) onSubmit(wish);
+    if (!ready) return;
+    if (!videoOff) primeReactorAudio();
+    onSubmit(wish);
   };
 
   return (
@@ -59,7 +62,10 @@ export function Intake({
         type="button"
         className={`mode${videoOff ? " off" : ""}`}
         disabled={busy}
-        onClick={() => onVideoMode(!videoOff)}
+        onClick={() => {
+          if (videoOff) primeReactorAudio();
+          onVideoMode(!videoOff);
+        }}
         title={
           videoOff
             ? "每一幕生成一张静帧，不调用视频服务"

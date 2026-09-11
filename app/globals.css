@@ -423,20 +423,6 @@ button {
   pointer-events: none;
 }
 
-.audio-unmute {
-  position: absolute;
-  z-index: 12;
-  top: 16px;
-  left: 18px;
-  padding: 8px 13px;
-  border: 1px solid rgba(255, 255, 255, 0.36);
-  border-radius: 999px;
-  color: #fff;
-  background: rgba(18, 13, 17, 0.66);
-  backdrop-filter: blur(8px);
-  cursor: pointer;
-}
-
 .scene-progress {
   position: absolute;
   top: 18px;

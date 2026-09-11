@@ -64,8 +64,8 @@ export function dress(action: string, style: StyleKey, still = false): string {
   //   [camera tag]  the bracket command, first, where MiniMax expects it
   //   POV_LEAD      whose eyes, what height, what is in the near foreground
   //   action        the subject's action, which the model weights hardest
-  //   POV_GUARD     only the negatives that failed on screen
-  //   sound, style  the fixed grammar
+  //   sound, style  the fixed audiovisual grammar
+  //   POV_GUARD     the final hard bans, including all on-screen text
   //
   // The camera used to be one long block bolted on after the action, which
   // announced the POV last and buried the shot under constraints.
@@ -97,13 +97,14 @@ export function dress(action: string, style: StyleKey, still = false): string {
  * setting. The engine owns this because it chooses the API input.
  */
 export function imageKey(args: { frame: boolean; continuation: boolean }): string {
+  const noText = "NO ON-SCREEN TEXT OR SUBTITLES IN ANY LANGUAGE. ";
   if (args.continuation) {
-    return "Continue directly from the previous clip's retained final frame: same setting, light, viewpoint and man. ";
+    return `${noText}Continue directly from the previous clip's retained final frame: same setting, light, viewpoint and man. `;
   }
   if (args.frame) {
-    return "Animate the uploaded 16:9 scene starting frame; keep its man, setting, light and first-person viewpoint. ";
+    return `${noText}Animate the uploaded 16:9 scene starting frame; keep its man, setting, light and first-person viewpoint. `;
   }
-  return "";
+  return noText;
 }
 
 const sharedRules = (him: Character, still = false) => `You write a first-person romantic story driven by the player's chosen activity.

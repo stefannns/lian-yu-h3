@@ -1,7 +1,7 @@
 "use client";
 
 import { Reactor, type ReactorMessage } from "@reactor-team/js-sdk";
-import { PROMPT_WARN_CHARS } from "./limits";
+import { REACTOR_PROMPT_MAX_CHARS } from "./limits";
 
 export const REACTOR_MODEL = "reactor/fast-h3";
 const SAFE_CLIP_SECONDS = 5.167;
@@ -25,6 +25,44 @@ const playing = new Map<string, Promise<void>>();
 let generationInFlight = false;
 let mockCanvas: HTMLCanvasElement | null = null;
 let mockStream: MediaStream | null = null;
+let reactorAudioContext: AudioContext | null = null;
+let activeAudioSource: MediaStreamAudioSourceNode | null = null;
+
+/**
+ * Resume Web Audio during the player's click, before asynchronous generation
+ * loses browser user activation. Stage later routes Reactor's audio track
+ * through this already-authorized context.
+ */
+export function primeReactorAudio() {
+  if (typeof window === "undefined" || typeof window.AudioContext === "undefined") return;
+  reactorAudioContext ??= new window.AudioContext();
+  if (reactorAudioContext.state !== "running") void reactorAudioContext.resume();
+}
+
+export function attachReactorAudio(stream: MediaStream): () => void {
+  primeReactorAudio();
+  const context = reactorAudioContext;
+  if (!context) return () => undefined;
+
+  let source: MediaStreamAudioSourceNode | null = null;
+  const connect = () => {
+    if (source) return;
+    const tracks = stream.getAudioTracks();
+    if (tracks.length === 0) return;
+    activeAudioSource?.disconnect();
+    source = context.createMediaStreamSource(new MediaStream(tracks));
+    source.connect(context.destination);
+    activeAudioSource = source;
+  };
+
+  stream.addEventListener("addtrack", connect);
+  connect();
+  return () => {
+    stream.removeEventListener("addtrack", connect);
+    source?.disconnect();
+    if (activeAudioSource === source) activeAudioSource = null;
+  };
+}
 
 function trace(event: string, details: Record<string, string | number | boolean> = {}) {
   if (process.env.NODE_ENV !== "development") return;
@@ -304,11 +342,14 @@ export async function filmShot(args: {
       : undefined;
     args.signal?.throwIfAborted();
 
-    const prompt = args.prompt.slice(0, PROMPT_WARN_CHARS);
+    const prompt = args.prompt.slice(0, REACTOR_PROMPT_MAX_CHARS);
     trace("enqueue_start", {
       beat: args.beat,
       seconds: SAFE_CLIP_SECONDS,
       source: startingFrame ? "starting_frame" : "previous_clip",
+      promptChars: prompt.length,
+      noTextLead: prompt.startsWith("NO ON-SCREEN TEXT OR SUBTITLES"),
+      noTextGuard: prompt.includes("ABSOLUTELY NO on-screen text"),
     });
     const reply = await client.sendCommand("enqueue", {
       prompt,
