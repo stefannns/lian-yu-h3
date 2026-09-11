@@ -1,9 +1,9 @@
 "use client";
 
-import { Reactor, type ReactorMessage } from "@reactor-team/js-sdk";
+import { FastH3Model } from "@reactor-models/fast-h3";
+import type { ReactorMessage } from "@reactor-team/js-sdk";
 import { REACTOR_PROMPT_MAX_CHARS } from "./limits";
 
-export const REACTOR_MODEL = "reactor/fast-h3";
 const SAFE_CLIP_SECONDS = 5.167;
 
 export interface ReactorClip {
@@ -13,8 +13,8 @@ export interface ReactorClip {
 type RecordValue = Record<string, unknown>;
 type Waiter = { resolve: () => void; reject: (cause: Error) => void; timer: number };
 
-let reactor: Reactor | null = null;
-let connecting: Promise<Reactor> | null = null;
+let reactor: FastH3Model | null = null;
+let connecting: Promise<FastH3Model> | null = null;
 let configured = false;
 let cachedToken: { jwt: string; expiresAtMs: number } | null = null;
 let tokenRequest: Promise<string> | null = null;
@@ -248,8 +248,8 @@ function handleMessage(message: ReactorMessage) {
   }
 }
 
-async function ensureReactor(): Promise<Reactor> {
-  const configure = async (client: Reactor) => {
+async function ensureReactor(): Promise<FastH3Model> {
+  const configure = async (client: FastH3Model) => {
     if (configured) return;
     const canvas = await client.sendCommand("set_canvas", { aspect: "16:9" });
     const flush = await client.sendCommand("set_flush_on_clip_end", { enabled: false });
@@ -265,14 +265,14 @@ async function ensureReactor(): Promise<Reactor> {
   }
   if (connecting) return connecting;
   connecting = (async () => {
-    const client = reactor ?? new Reactor({
-      modelName: REACTOR_MODEL,
+    // The model-specific client predeclares Fast H3's video and audio tracks,
+    // so SDP negotiation can begin in parallel with coordinator readiness.
+    const client = reactor ?? new FastH3Model({
       jwt: getToken,
-      // Session creation is asynchronous on Reactor. Polling readiness does
-      // not enqueue a clip or spend generation credits; one attempt made a
-      // healthy cold session fail immediately with "not ready after 1 polls".
-      readyTimeoutMs: 30_000,
-      maxSessionAttempts: 20,
+      // Bound a bad connection before any enqueue can happen. These attempts
+      // poll the same pre-generation session state; they never create clips.
+      readyTimeoutMs: 12_000,
+      maxSessionAttempts: 8,
       maxSdpAttempts: 8,
       logLevel: "warn",
     });
