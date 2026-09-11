@@ -57,7 +57,7 @@ const STORY_MODEL = "gemini-3.5-flash-lite";
 export function dress(action: string, style: StyleKey, still = false): string {
   if (still) {
     const moment = action.replace(/^\s*\[[^\]]+\]\s*/, "");
-    return `Create one standalone scene illustration. ${POV_LEAD} ${moment} ${POV_GUARD.replace("film", "image")} ${STYLES[style].still}`;
+    return `Create one standalone scene illustration. ${POV_LEAD} ${moment} ${STYLES[style].still} ${POV_GUARD}`;
   }
   // Order is load-bearing, and it follows MiniMax's own guidance for H3:
   //
@@ -71,7 +71,7 @@ export function dress(action: string, style: StyleKey, still = false): string {
   // announced the POV last and buried the shot under constraints.
   const tag = SHOT_TAGS && !/^\s*\[/.test(action) ? `${DEFAULT_SHOT_TAG} ` : "";
   const dressed =
-    `${tag}${POV_LEAD} ${action} ${POV_GUARD} ${SOUND} ${STYLES[style].prompt}`;
+    `${tag}${POV_LEAD} ${action} ${SOUND} ${STYLES[style].prompt} ${POV_GUARD}`;
   if (dressed.length <= PROMPT_WARN_CHARS) return dressed;
 
   // Over budget. The clauses are fixed and each one is load-bearing, so the
@@ -88,7 +88,7 @@ export function dress(action: string, style: StyleKey, still = false): string {
     `[dress] action trimmed ${action.length} -> ${trimmed.length} chars to fit ` +
       `the ${PROMPT_WARN_CHARS}-char prompt budget`
   );
-  return `${tag}${POV_LEAD} ${trimmed} ${POV_GUARD} ${SOUND} ${STYLES[style].prompt}`;
+  return `${tag}${POV_LEAD} ${trimmed} ${SOUND} ${STYLES[style].prompt} ${POV_GUARD}`;
 }
 
 /**
@@ -113,7 +113,7 @@ The adult young man — ${descriptorPhrase(him)}. ${him.temperament}
 His name is ${him.name}. Do not put his name inside dialogue; the interface labels the speaker.
 
 THE PLAYER AND CAMERA
-She is the camera. Only he appears in the scene. Her hands may appear low in the foreground when needed; never show her face, hair, head, body, reflection or a third person. Describe what she sees and what he does toward the camera. Never use a third-person or over-the-shoulder view. In English prompts call her "her" or "the camera"; never put her in the frame.
+The viewer is the camera and is completely invisible. Exactly one person may be visible: the adult male lead. Never show the viewer's body, hands, hair, shadow or reflection. Never use third-person, over-the-shoulder, selfie or mirror composition. In English visual prompts refer to the player only as "the camera" or "the unseen viewer"; never use she, her, woman or girl for the player.
 Only these two people exist in the story. Do not add voices, strangers, friends, family or background extras.
 This is only a cast and camera restriction. Never turn it into dialogue or narration about "only us", "only our day", "related to us", a private cake, or a story that belongs only to the two of them.
 
@@ -130,7 +130,7 @@ A brief affectionate gesture can colour an activity, but cannot replace progress
 PACING AND LOCATION
 Waking is only a single brief opening prologue, at most five seconds. The next scene goes directly to the requested activity. Never restart waking or preparation in the middle of the story. Stay in bed only if explicitly requested.
 cut: true means a new place or a meaningful time jump. Use it freely to skip uneventful work or waiting. cut: false means the current scene. Both must keep the character and the player's established decisions.
-Warm romance, nothing explicit, no nudity or violence. Dialogue is Chinese UI text, never lettering or spoken dialogue inside a visual prompt.
+Warm romance, nothing explicit, no nudity or violence. Dialogue remains Chinese UI text. Never request visible lettering, subtitles or captions in a visual prompt. If an action depicts him speaking, do not invent a quoted line; the fixed audio rule enforces one natural adult male Mandarin voice.
 
 ${still
   ? `WRITING AN INDEPENDENT STILL IMAGE

@@ -412,7 +412,11 @@ test("Reactor FastH3 uses an uploaded first frame, then chains a second clip", a
       return reply;
     }
     getLastError() { return undefined; }
-    getTrackByName() { return undefined; }
+    getTrackByName(name) {
+      if (name === "main_video") return { name: "video" };
+      if (name === "main_audio") return { name: "audio" };
+      return undefined;
+    }
     async disconnect() { this.status = "disconnected"; }
   }
   const windowMock = {
@@ -423,7 +427,12 @@ test("Reactor FastH3 uses an uploaded first frame, then chains a second clip", a
     "@reactor-team/js-sdk": { Reactor: FakeReactor },
     "./limits": { PROMPT_WARN_CHARS: 780 },
   }, {
-    window: windowMock, Blob, Uint8Array, atob, queueMicrotask, process: { env: { NODE_ENV: "test" } },
+    window: windowMock, Blob, Uint8Array, atob, queueMicrotask,
+    MediaStream: class {
+      constructor(tracks) { this.tracks = [...tracks]; }
+      addTrack(track) { this.tracks.push(track); }
+    },
+    process: { env: { NODE_ENV: "test" } },
     fetch: async () => ({
       ok: true,
       json: async () => ({ jwt: "jwt", expiresAt: Math.floor(Date.now() / 1000) + 3600 }),
@@ -452,6 +461,8 @@ test("Reactor FastH3 uses an uploaded first frame, then chains a second clip", a
   assert.equal(enqueues[0].continue_from_clip_id, undefined);
   assert.equal(enqueues[1].starting_frame, undefined);
   assert.equal(enqueues[1].continue_from_clip_id, "clip-1");
+  const media = await reactor.reactorMediaStream();
+  assert.equal(media.tracks.map(track => track.name).join(","), "video,audio");
   await assert.rejects(
     reactor.filmShot({ prompt: "bad", seed: 1, beat: 4, duration: 5, resolution: "768P" }),
     /exactly one starting frame source/
@@ -467,8 +478,13 @@ test("every style produces a complete Reactor video prompt below 800 characters"
       false
     );
     assert.ok(prompt.length <= 780, `${style} prompt was ${prompt.length} characters`);
-    assert.match(prompt, /First-person POV/);
-    assert.match(prompt, /no spoken dialogue/);
+    assert.match(prompt, /STRICT First-person POV/);
+    assert.match(prompt, /completely off-screen/);
+    assert.match(prompt, /Exactly one visible person/);
+    assert.match(prompt, /adult male Mandarin voice/);
+    assert.match(prompt, /no female voice, no gibberish/);
+    assert.match(prompt, /No subtitles, captions, text/);
+    assert.match(prompt, /interface\.$/);
   }
 });
 
@@ -525,6 +541,15 @@ test("video opening stops before H3 when its 16:9 first frame fails", async () =
   assert.equal(h.calls.videos, 0);
   assert.equal(h.director.getSnapshot().phase, "intake");
   assert.match(h.director.getSnapshot().notice, /开场没有拍成/);
+});
+
+test("opening frame is strict first-person with only the male lead visible", () => {
+  const character = loader()("lib/character.ts");
+  const prompt = character.firstFramePrompt(him, "anime");
+  assert.match(prompt, /STRICT First-person POV/);
+  assert.match(prompt, /Exactly one visible person/);
+  assert.match(prompt, /viewer stays completely off-screen/);
+  assert.doesNotMatch(prompt, /\b(?:she|her|woman|girl)\b/i);
 });
 
 test("free-only recovery renders both retry and free input without a video element", () => {

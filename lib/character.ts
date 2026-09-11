@@ -166,14 +166,13 @@ export function restylePrompt(_him: Character, style: StyleKey): string {
  */
 
 /**
- * Front of every prompt. Three things, per the POV guidance: say it is first
- * person, give the camera a HEIGHT, and name what fills the LOWER FRAME. Text
- * alone does not hold POV; a physical anchor in the near foreground does,
- * because without one the model has nothing to place the viewer behind and
- * reverts to a neutral observer angle.
+ * Front of every prompt. Declare the camera as the viewer's own eyesight
+ * before the model sees any action, and make the viewer explicitly off-screen.
+ * This prevents the model from turning a grammatical "she" into a second
+ * visible character or reverting to a neutral observer angle.
  */
 export const POV_LEAD =
-  "First-person POV through her eyes at eye height; her hands may sit low in the foreground.";
+  "STRICT First-person POV from the viewer's eyes; the camera is the viewer's eyesight and the viewer stays completely off-screen.";
 
 /**
  * After the action. Only the failures actually observed on screen, stated as
@@ -181,7 +180,7 @@ export const POV_LEAD =
  * foreground corner, and it pads a quiet domestic frame with extras.
  */
 export const POV_GUARD =
-  "Only the handsome adult man appears. Never show her face, head, body or reflection; no third-person angle or background people.";
+  "Exactly one visible person: the handsome adult man facing the camera. No viewer body, hands, hair, shadow or reflection; no other person, duplicate, third-person, over-the-shoulder, selfie, mirror shot or background people. No subtitles, captions, text, letters, logos, watermarks or interface.";
 
 /**
  * MiniMax camera commands, in square brackets, up to three per bracket for a
@@ -207,7 +206,7 @@ export const DEFAULT_SHOT_TAG = "[Static shot]";
  * convention this genre already uses.
  */
 export const SOUND =
-  "Ambient sound and soft piano; wordless voice, no spoken dialogue.";
+  "Synchronized natural ambience and soft music. If speech occurs, it is one clear, warm adult male Mandarin voice from the man on screen; no female voice, no gibberish.";
 
 /** Where the game opens, in English, for the painter and the storyteller. */
 export const OPENING_SCENE =
@@ -225,14 +224,11 @@ export const OPENING_SCENE =
  */
 export function firstFramePrompt(him: Character, style: StyleKey): string {
   return (
-    `${OPENING_SCENE} First-person view from the pillow, camera at pillow ` +
-    `height and level with the bed, the rumpled duvet edge filling the near ` +
-    `foreground. A young man, ${descriptorPhrase(him)}, sits on the edge of the ` +
-    `bed close beside her, ` +
-    `turned toward her, one hand resting on the sheets, caught mid-glance with ` +
-    `the morning light behind him. He is the only person in the image: the ` +
-    `viewer's own body, face, hair and reflection are not in frame, and nobody ` +
-    `else appears. ${STYLES[style].still}`
+    `${POV_LEAD} ${OPENING_SCENE} Camera at pillow height and level with ` +
+    `the bed, the rumpled duvet edge filling the near foreground. A young man, ` +
+    `${descriptorPhrase(him)}, sits on the edge of the bed close to the camera, ` +
+    `turned toward the lens, one hand resting on the sheets, caught mid-glance ` +
+    `with the morning light behind him. ${STYLES[style].still} ${POV_GUARD}`
   );
 }
 
@@ -256,8 +252,8 @@ export function openingShotPrompt(him: Character): string {
     `Blurred darkness narrows the top and bottom of the frame like heavy ` +
     `eyelids and then lifts away: first a soft slit of morning light, then the ` +
     `frame opens wide as the focus racks to sharp. ` +
-    `Revealed close beside her, the young man — ${descriptorPhrase(him)} — sits on the ` +
-    `edge of the bed, alone in the room with her. He notices she is awake and ` +
+    `Revealed close to the camera, the young man — ${descriptorPhrase(him)} — sits on the ` +
+    `edge of the bed as the only visible person. He notices the viewer is awake and ` +
     `leans a little closer, his face softening. The rumpled duvet edge stays low ` +
     `in the foreground at pillow height. One brief, quiet reveal.`
   );

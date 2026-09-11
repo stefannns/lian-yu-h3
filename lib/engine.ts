@@ -411,7 +411,7 @@ export class Director {
       prompt: dress(
         mustLeaveOpening
           ? `Cut directly to the central scene the viewer asked for: ${wish}. ` +
-            `The young man — ${him.descriptor} — is already there with her. ` +
+            `The young man — ${him.descriptor} — is already there, facing the unseen viewer. ` +
             `Show the activity ready for the player's first meaningful decision; no bedroom or getting ready.`
           : `The young man — ${him.descriptor} — responds to what the viewer wants of ` +
             `this morning: ${wish}. One clear, tender physical action, unhurried.`,
@@ -634,7 +634,8 @@ export class Director {
             "for the upcoming video. Preserve his face, hair and adult appearance. Compose " +
             "the exact new setting and first-person camera view from the scene prompt; do not " +
             "copy the portrait background or pose. Freeze the action at its clear starting " +
-            "moment. No text, captions, borders or interface. " +
+            "moment. Exactly one visible person, the adult male lead; the viewer is fully " +
+            "off-screen. No text, captions, borders or interface. " +
             args.prompt,
           seed: this.seed + beat,
           width: 1280,
@@ -705,7 +706,7 @@ export class Director {
     const beat = args.beat ?? this.state.beat + 1;
     const references = this.portrait ? [this.portrait] : [];
     const referenceLead = this.portrait
-      ? "Image 1 is a character identity reference only. Keep his face and appearance. Compose a fresh scene from the text; do not copy the portrait's background or pose. "
+      ? "Image 1 is a character identity reference only. Keep his face and appearance. Compose a fresh scene from the text; do not copy the portrait's background or pose. Exactly one visible person, the adult male lead; the viewer is fully off-screen. "
       : "";
 
     try {
