@@ -681,7 +681,14 @@ export class Director {
         decisionKey: args.decisionKey,
       };
     } catch (cause) {
-      console.error("[generate] shot failed:", cause);
+      if (cause instanceof Error && cause.name === "ReactorError") {
+        // Reactor availability is an expected provider failure. The caller
+        // restores a retryable UI; console.error would make Next dev show a
+        // fatal-looking overlay even though this exception is handled.
+        console.warn("[generate] Reactor unavailable before clip:", cause.message);
+      } else {
+        console.error("[generate] shot failed:", cause);
+      }
       return null;
     }
   }

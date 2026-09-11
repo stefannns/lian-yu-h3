@@ -268,12 +268,6 @@ async function ensureReactor(): Promise<FastH3Model> {
     // The model-specific client predeclares Fast H3's video and audio tracks,
     // so SDP negotiation can begin in parallel with coordinator readiness.
     const client = reactor ?? new FastH3Model({
-      jwt: getToken,
-      // Bound a bad connection before any enqueue can happen. These attempts
-      // poll the same pre-generation session state; they never create clips.
-      readyTimeoutMs: 12_000,
-      maxSessionAttempts: 8,
-      maxSdpAttempts: 8,
       logLevel: "warn",
     });
     if (!reactor) {
@@ -286,7 +280,11 @@ async function ensureReactor(): Promise<FastH3Model> {
       }));
     }
     trace("connect_start");
-    await client.connect();
+    // Follow the model client's documented flow: resolve one short-lived JWT
+    // and pass that value to connect. A resolver is called before every
+    // authenticated readiness request, which caused repeated token fetches.
+    const jwt = await getToken();
+    await client.connect(jwt);
     trace("connect_ready");
     await configure(client);
     trace("session_configured");
