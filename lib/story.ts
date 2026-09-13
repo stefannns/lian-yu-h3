@@ -39,6 +39,7 @@ import {
   POV_LEAD,
   SHOT_TAGS,
   SOUND,
+  TEXT_GUARD,
   type Character,
 } from "./character";
 import { PROMPT_WARN_CHARS } from "./limits";
@@ -98,7 +99,10 @@ export function dress(action: string, style: StyleKey, still = false): string {
  * setting. The engine owns this because it chooses the API input.
  */
 export function imageKey(args: { frame: boolean; continuation: boolean }): string {
-  const noText = "NO ON-SCREEN TEXT OR SUBTITLES IN ANY LANGUAGE. ";
+  // Fast H3 exposes one positive prompt and no separate negative-prompt field,
+  // so the text ban leads the request here and is repeated by POV_GUARD at the
+  // end of dress(). This specifically counters captions invented from speech.
+  const noText = `VIDEO NEGATIVE PROMPT: ${TEXT_GUARD} Never visualize or auto-caption the audio. `;
   if (args.continuation) {
     return `${noText}Continue directly from the previous clip's retained final frame: same setting, light, viewpoint and man. `;
   }

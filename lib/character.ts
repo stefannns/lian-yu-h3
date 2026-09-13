@@ -188,8 +188,12 @@ export const POV_LEAD =
  * bans rather than as prose: h3 parks the back of the viewer's own head in a
  * foreground corner, and it pads a quiet domestic frame with extras.
  */
+export const TEXT_GUARD =
+  "ZERO VISIBLE TEXT OR TEXT-LIKE MARKS IN EVERY FRAME. No burned-in subtitles, closed captions, dialogue text, lower thirds, title cards, end cards, credits, speech bubbles, words, letters, numbers, glyphs, pseudo-text, scrambled or deformed writing, signs, labels, logos, watermarks, UI or interface.";
+
 export const POV_GUARD =
-  "Exactly one visible person: the handsome adult man facing the camera. No viewer body, hands, hair, shadow or reflection; no other person, duplicate, third-person, over-the-shoulder, selfie, mirror shot or background people. ABSOLUTELY NO on-screen text: no subtitles in any language, captions, letters, speech bubbles, signs, logos, watermarks or interface.";
+  "Exactly one visible person: the handsome adult man facing the camera. No viewer body, hands, hair, shadow or reflection; no other person, duplicate, third-person, over-the-shoulder, selfie, mirror shot or background people. " +
+  TEXT_GUARD;
 
 /**
  * MiniMax camera commands, in square brackets, up to three per bracket for a
@@ -213,7 +217,7 @@ export const DEFAULT_SHOT_TAG = "[Static shot]";
  * heard audio from text rendered into the image.
  */
 export const SOUND =
-  "AUDIO TRACK ONLY: synchronized natural ambience and soft music. If speech occurs, it is heard only from the man on screen in one clear, warm adult male Mandarin voice; never transcribe or visualize it, no female voice, no gibberish.";
+  "AUDIO TRACK ONLY: synchronized natural ambience and soft music. If speech occurs, it is heard only from the man on screen in one clear, warm adult male Mandarin voice; no female voice or gibberish. Spoken dialogue exists only in the audio track and is never visually transcribed, auto-captioned or burned into the video.";
 
 /** Where the game opens, in English, for the painter and the storyteller. */
 export const OPENING_SCENE =

@@ -6,8 +6,9 @@
  */
 
 /**
- * Keep generated action prompts concise. Reactor itself accepts 4000
- * characters; continuity and final safety clauses are added after this step.
+ * Budget for the fully dressed scene body. imageKey() adds source continuity
+ * and the leading negative block later, so this remains below Reactor's
+ * 4000-character hard limit while preserving the complete scene action.
  */
-export const PROMPT_WARN_CHARS = 780;
+export const PROMPT_WARN_CHARS = 2800;
 export const REACTOR_PROMPT_MAX_CHARS = 4000;
