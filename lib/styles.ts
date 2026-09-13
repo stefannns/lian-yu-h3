@@ -44,10 +44,15 @@ export const STYLES: Record<StyleKey, StylePreset> = {
     prompt:
       "Premium romantic sci-fi 3D game cinematic: refined adult face and proportions, luminous skin, groomed hair, detailed fabric, cool shadows, warm key light, shallow depth of field.",
     still:
-      "Rendered as a premium romantic science-fiction 3D game still: refined " +
-      "stylized-realistic adult proportions, luminous subsurface-scattered skin, groomed " +
-      "silky hair, physically based fabric detail, cool ambient shadows and soft warm key " +
-      "light, intimate shallow depth of field, delicate bloom, polished cinematic rendering.",
+      "Rendered as a polished Chinese otome science-fiction 3D game CG: the male lead is " +
+      "a youthful, strikingly handsome East Asian adult in his early-to-mid twenties, with " +
+      "a refined oval face, straight neat brows, expressive almond-shaped eyes, a graceful " +
+      "nose and lips, smooth clean-shaven skin, elegant silky modern hair and slim athletic " +
+      "proportions. Premium stylized-realistic character rendering, luminous " +
+      "subsurface-scattered skin, physically based fabric, cool ambient shadows, soft warm " +
+      "key light, intimate shallow depth of field and delicate bloom. Clearly adult and " +
+      "fresh-faced; no middle-aged appearance, rugged Western casting, square heavy jaw, " +
+      "deep facial lines, beard, stubble or weathered skin.",
   },
   real: {
     label: "写实电影",

@@ -154,7 +154,9 @@ export function restylePrompt(_him: Character, style: StyleKey): string {
     `else. Keep his exact face, hair, build, clothing, sex, and identity from ` +
     `the reference. Do not feminize him or turn him into a woman, girl, ` +
     `androgynous character, child, couple, or group. The finished portrait must ` +
-    `show exactly one unmistakably adult man. ${STYLES[style].still}`
+    `show exactly one unmistakably adult man. ${STYLES[style].still} ` +
+    `The reference image remains authoritative for his exact face, ethnicity, ` +
+    `and age; apply the style as rendering only and never replace his identity.`
   );
 }
 

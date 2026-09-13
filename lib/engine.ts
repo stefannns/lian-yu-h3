@@ -33,7 +33,7 @@ import {
   openingShotPrompt,
   type Character,
 } from "./character";
-import { DEFAULT_STYLE, type StyleKey } from "./styles";
+import { DEFAULT_STYLE, STYLES, type StyleKey } from "./styles";
 import type { Beat, Choice, Phase, Shot } from "./types";
 
 /** Only an explicit wish to remain in bed earns a second bedroom beat. */
@@ -635,7 +635,8 @@ export class Director {
             "the exact new setting and first-person camera view from the scene prompt; do not " +
             "copy the portrait background or pose. Freeze the action at its clear starting " +
             "moment. Exactly one visible person, the adult male lead; the viewer is fully " +
-            "off-screen. No text, captions, borders or interface. " +
+            "off-screen. No text, captions, borders or interface. Render this Nano frame " +
+            `with the selected still-image direction: ${STYLES[this.style].still} ` +
             args.prompt,
           seed: this.seed + beat,
           width: 1280,
