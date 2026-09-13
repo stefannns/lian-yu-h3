@@ -35,17 +35,23 @@ export const STYLES: Record<StyleKey, StylePreset> = {
     prompt:
       "Japanese otome anime CG: refined adult proportions, crisp cel shading and ink lines, delicate background, warm romantic light; never childish or cartoonish.",
     still:
-      "Rendered as a Japanese shoujo anime illustration: hand-drawn cel shading, " +
-      "crisp ink linework, flat shadow shapes, warm pastel palette, soft bloom, " +
-      "delicate painted background.",
+      "Rendered as a refined Japanese otome anime game CG. Unless the character " +
+      "description or identity reference explicitly specifies another adult identity, " +
+      "the male lead is a youthful, strikingly handsome East Asian adult in his " +
+      "early-to-mid twenties, with elegant modern hair, expressive eyes, a clean-shaven " +
+      "face and slim athletic proportions. Sophisticated adult features, never childish " +
+      "or toy-like. Hand-drawn cel shading, crisp delicate ink linework, controlled flat " +
+      "shadow shapes, warm romantic light, soft bloom and a detailed painted background.",
   },
   cg3d: {
     label: "3D动画",
     prompt:
       "Premium romantic sci-fi 3D game cinematic: refined adult face and proportions, luminous skin, groomed hair, detailed fabric, cool shadows, warm key light, shallow depth of field.",
     still:
-      "Rendered as a polished Chinese otome science-fiction 3D game CG: the male lead is " +
-      "a youthful, strikingly handsome East Asian adult in his early-to-mid twenties, with " +
+      "Rendered as a polished Chinese otome science-fiction 3D game CG. Unless the character " +
+      "description or identity reference explicitly specifies another adult identity, the " +
+      "male lead is a youthful, strikingly handsome East Asian adult in his early-to-mid " +
+      "twenties, with " +
       "a refined oval face, straight neat brows, expressive almond-shaped eyes, a graceful " +
       "nose and lips, smooth clean-shaven skin, elegant silky modern hair and slim athletic " +
       "proportions. Premium stylized-realistic character rendering, luminous " +
@@ -59,9 +65,14 @@ export const STYLES: Record<StyleKey, StylePreset> = {
     prompt:
       "Photoreal live-action cinema: attractive adult lead, natural light and skin texture, fine hair, shallow depth of field, subtle grain, muted film colour.",
     still:
-      "A photoreal live-action film still: natural window light, true skin " +
-      "texture and fine hair detail, shallow depth of field on a fast prime lens, " +
-      "subtle film grain, naturalistic muted colour grade.",
+      "A polished Chinese romantic live-action film still. Unless the character " +
+      "description or identity reference explicitly specifies another adult identity, " +
+      "cast a youthful, strikingly handsome East Asian adult male in his early-to-mid " +
+      "twenties, with refined harmonious features, expressive eyes, smooth clean-shaven " +
+      "skin, elegant modern hair and slim athletic proportions; avoid older, rugged, " +
+      "bearded or strongly Western casting. Natural window light, authentic smooth skin " +
+      "texture and fine hair detail, shallow depth of field on a fast prime lens, subtle " +
+      "film grain and a restrained cinematic colour grade.",
   },
 };
 
