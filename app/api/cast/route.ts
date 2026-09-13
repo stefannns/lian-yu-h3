@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { portraitPrompt, restylePrompt, type Character } from "@/lib/character";
 import { generateGemini, type GeminiPart } from "@/lib/gemini";
+import { parseJsonObjectReply } from "@/lib/json";
 import { ImageGenError, generateImage, imageFailureMessage, toDataUri } from "@/lib/imagegen";
 import { DEFAULT_STYLE, isStyleKey } from "@/lib/styles";
 
@@ -74,17 +75,6 @@ function str(value: unknown, max: number): string {
   return typeof value === "string" ? value.trim().slice(0, max) : "";
 }
 
-function parseJson(text: string): Record<string, unknown> {
-  try {
-    return JSON.parse(text) as Record<string, unknown>;
-  } catch {
-    const start = text.indexOf("{");
-    const end = text.lastIndexOf("}");
-    if (start === -1 || end <= start) throw new Error("no JSON in reply");
-    return JSON.parse(text.slice(start, end + 1)) as Record<string, unknown>;
-  }
-}
-
 /** One Gemini turn, straight to Google — this route is already server-side. */
 async function gemini(args: {
   system: string;
@@ -122,7 +112,7 @@ async function gemini(args: {
   };
   const text = body.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("") ?? "";
   if (!text) throw new Error("Gemini returned nothing");
-  return parseJson(text);
+  return parseJsonObjectReply(text);
 }
 
 /** Paint his source picture. Returns a data URI. */

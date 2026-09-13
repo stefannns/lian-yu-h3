@@ -43,6 +43,7 @@ import {
 } from "./character";
 import { PROMPT_WARN_CHARS } from "./limits";
 import { LlmError, llmCall, type LlmCaller } from "./llm";
+import { parseJsonObjectReply } from "./json";
 import { STYLES, type StyleKey } from "./styles";
 import type { Beat, Choice } from "./types";
 
@@ -249,18 +250,6 @@ function readDecisionKey(value: unknown): string {
   return /^[a-z][a-z0-9_]{1,47}$/.test(key) ? key : "";
 }
 
-/** Pull the first {...} out of a reply, for when JSON mode still wraps it. */
-function parse(text: string): Record<string, unknown> {
-  try {
-    return JSON.parse(text) as Record<string, unknown>;
-  } catch {
-    const start = text.indexOf("{");
-    const end = text.lastIndexOf("}");
-    if (start === -1 || end <= start) throw new Error("no JSON in reply");
-    return JSON.parse(text.slice(start, end + 1)) as Record<string, unknown>;
-  }
-}
-
 function readChoices(raw: unknown, style: StyleKey, still = false): Choice[] {
   if (!Array.isArray(raw)) return [];
   const out: Choice[] = [];
@@ -350,7 +339,7 @@ export async function tellNext(args: {
         json: true,
         model: STORY_MODEL,
       });
-      const data = parse(output);
+      const data = parseJsonObjectReply(output);
       const choices = readChoices(data.choices, args.style, args.still);
       const continuation = readChoices(
         data.continuation ? [data.continuation] : [],
@@ -393,7 +382,7 @@ export async function tellNext(args: {
         continuation: interaction === "auto" ? continuation : null,
       };
     } catch (cause) {
-      console.error(`[tellNext] attempt ${attempt + 1} failed:`, cause);
+      console.warn(`[tellNext] attempt ${attempt + 1} failed:`, cause);
       if (cause instanceof LlmError) return null;
     }
   }
@@ -429,14 +418,14 @@ export async function writeIntentShot(
         json: true,
         model: STORY_MODEL,
       });
-      const data = parse(output);
+      const data = parseJsonObjectReply(output);
       const prompt = str(data.prompt, 900);
       const label = visibleText(data.label, 40);
       if (prompt) {
         return { label: label || text, prompt: dress(prompt, style, still), cut: mustLeaveOpening || data.cut === true };
       }
     } catch (cause) {
-      console.error(`[writeIntentShot] attempt ${attempt + 1} failed:`, cause);
+      console.warn(`[writeIntentShot] attempt ${attempt + 1} failed:`, cause);
       if (cause instanceof LlmError) return null;
     }
   }
@@ -475,7 +464,7 @@ export async function writeTypedShot(args: {
       json: true,
       model: STORY_MODEL,
     });
-    const data = parse(output);
+    const data = parseJsonObjectReply(output);
     const prompt = str(data.prompt, 900);
     if (!prompt) return null;
     return {
@@ -484,7 +473,7 @@ export async function writeTypedShot(args: {
       cut: data.cut === true,
     };
   } catch (cause) {
-    console.error("[writeTypedShot] failed:", cause);
+    console.warn("[writeTypedShot] failed:", cause);
     return null;
   }
 }
