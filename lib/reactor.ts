@@ -64,6 +64,14 @@ export function attachReactorAudio(stream: MediaStream): () => void {
   };
 }
 
+function safeDiagnostic(message: string): string {
+  return message
+    .replace(/https?:\/\/\S+/g, "redacted-url")
+    .replace(/\beyJ[A-Za-z0-9._-]+/g, "redacted-token")
+    .replace(/[^\x20-\x7e]/g, "?")
+    .slice(0, 240);
+}
+
 function trace(event: string, details: Record<string, string | number | boolean> = {}) {
   if (process.env.NODE_ENV !== "development") return;
   void fetch("/api/reactor/debug", {
@@ -277,6 +285,7 @@ async function ensureReactor(): Promise<FastH3Model> {
       client.on("error", (error) => trace("sdk_error", {
         code: error.code || "unknown",
         recoverable: error.recoverable,
+        message: safeDiagnostic(error.message),
       }));
     }
     trace("connect_start");
@@ -293,9 +302,11 @@ async function ensureReactor(): Promise<FastH3Model> {
   try {
     return await connecting;
   } catch (cause) {
+    const error = cause instanceof Error ? cause : new Error("Reactor connection failed.");
+    trace("connect_failed", { message: safeDiagnostic(error.message) });
     reactor = null;
     configured = false;
-    throw cause;
+    throw error;
   } finally {
     connecting = null;
   }

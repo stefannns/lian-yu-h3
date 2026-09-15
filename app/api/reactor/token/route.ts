@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 const MODEL = "reactor/fast-h3";
 const TOKEN_LIFETIME_SECONDS = 300;
 const SESSION_LIFETIME_SECONDS = 180;
-const MAX_SESSIONS_PER_GRANT = 4;
+const MAX_SESSIONS_PER_GRANT = 1;
 const TOKEN_REFRESH_MARGIN_SECONDS = 30;
 
 type TokenGrant = { jwt: string; expiresAt: number };

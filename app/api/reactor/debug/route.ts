@@ -1,4 +1,5 @@
 const SAFE_TEXT = /^[a-zA-Z0-9_.:-]{1,80}$/;
+const SAFE_MESSAGE = /^[\x20-\x7e]{1,240}$/;
 
 export async function POST(request: Request) {
   if (process.env.NODE_ENV !== "development") {
@@ -17,7 +18,11 @@ export async function POST(request: Request) {
         SAFE_TEXT.test(key) &&
         (typeof value === "number" ||
           typeof value === "boolean" ||
-          (typeof value === "string" && SAFE_TEXT.test(value)))
+          (typeof value === "string" &&
+            (SAFE_TEXT.test(value) ||
+              (key === "message" &&
+                SAFE_MESSAGE.test(value) &&
+                !/(?:eyJ|authorization|api[-_ ]?key)/i.test(value)))))
       )
   );
 

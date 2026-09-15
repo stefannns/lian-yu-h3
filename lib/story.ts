@@ -71,14 +71,16 @@ export function dress(
   //   POV_LEAD      whose eyes, what height, what is in the near foreground
   //   action        the subject's action, which the model weights hardest
   //   sound, style  the fixed audiovisual grammar
-  //   POV_GUARD     the final hard bans, including all on-screen text
+  //   POV_GUARD     the final positive composition
   //
-  // The camera used to be one long block bolted on after the action, which
-  // announced the POV last and buried the shot under constraints.
-  const tag = SHOT_TAGS && !/^\s*\[/.test(action) ? `${DEFAULT_SHOT_TAG} ` : "";
+  // Keep each fixed clause brief so the action and exact spoken line remain
+  // the strongest instructions in the assembled prompt.
+  const explicitTag = /^\s*(\[[^\]]+\])\s*/.exec(action);
+  const sceneAction = explicitTag ? action.slice(explicitTag[0].length).trim() : action.trim();
+  const tag = SHOT_TAGS ? `${explicitTag?.[1] ?? DEFAULT_SHOT_TAG} ` : "";
   const sound = soundPrompt(spokenLine);
   const dressed =
-    `${tag}${POV_LEAD} ${action} ${sound} ${STYLES[style].prompt} ${POV_GUARD}`;
+    `${tag}${POV_LEAD} ${sceneAction} ${sound} ${STYLES[style].prompt} ${POV_GUARD}`;
   if (dressed.length <= PROMPT_WARN_CHARS) return dressed;
 
   // Over budget. The clauses are fixed and each one is load-bearing, so the
@@ -87,12 +89,12 @@ export function dress(
   // rather than a broken one. This should essentially never fire; it exists
   // because the alternative is a 422 the player experiences as "the opening
   // shot failed", which is what happened once already.
-  const budget = PROMPT_WARN_CHARS - (dressed.length - action.length) - 1;
-  const cut = action.slice(0, Math.max(0, budget));
+  const budget = PROMPT_WARN_CHARS - (dressed.length - sceneAction.length) - 1;
+  const cut = sceneAction.slice(0, Math.max(0, budget));
   const lastStop = Math.max(cut.lastIndexOf(". "), cut.lastIndexOf("; "));
   const trimmed = (lastStop > budget * 0.5 ? cut.slice(0, lastStop + 1) : cut).trim();
   console.warn(
-    `[dress] action trimmed ${action.length} -> ${trimmed.length} chars to fit ` +
+    `[dress] action trimmed ${sceneAction.length} -> ${trimmed.length} chars to fit ` +
       `the ${PROMPT_WARN_CHARS}-char prompt budget`
   );
   return `${tag}${POV_LEAD} ${trimmed} ${sound} ${STYLES[style].prompt} ${POV_GUARD}`;
@@ -105,10 +107,10 @@ export function dress(
  */
 export function imageKey(args: { frame: boolean; continuation: boolean }): string {
   if (args.continuation) {
-    return "Continue directly from the previous clip's retained final frame with the same setting, light, viewpoint and man. ";
+    return "Continue the prior clip as one continuous five-second shot with the same man, setting, light and viewpoint. ";
   }
   if (args.frame) {
-    return "Animate the uploaded 16:9 scene starting frame, preserving its man, setting, light and first-person viewpoint. ";
+    return "Animate the supplied 16:9 starting frame as one continuous five-second shot, preserving its man, setting, light and viewpoint. ";
   }
   return "Begin from the supplied scene composition. ";
 }
@@ -137,7 +139,7 @@ A brief affectionate gesture can colour an activity, but cannot replace progress
 PACING AND LOCATION
 Waking is only a single brief opening prologue, at most five seconds. The next scene goes directly to the requested activity. Never restart waking or preparation in the middle of the story. Stay in bed only if explicitly requested.
 cut: true means a new place or a meaningful time jump. Use it freely to skip uneventful work or waiting. cut: false means the current scene. Both must keep the character and the player's established decisions.
-Warm romance, nothing explicit, no nudity or violence. For every video move, write one short, natural Mandarin sentence in spokenLine. The English action describes only visible movement; the runtime places spokenLine verbatim in H3's soundtrack direction. For still images, spokenLine is null.
+Warm romance, nothing explicit, no nudity or violence. For every video move, write one natural Mandarin sentence of 4-18 Chinese characters in spokenLine, comfortable to say once within five seconds. The English action describes only visible movement; the runtime places spokenLine verbatim in H3's audio direction. For still images, spokenLine is null.
 
 ${still
   ? `WRITING AN INDEPENDENT STILL IMAGE
@@ -200,7 +202,7 @@ Return ONLY JSON:
 - choices: exactly two only when interaction is "choices"; otherwise []. They must materially change or define what follows. They need not be emotional opposites.
   - label: 中文，四到十八个字，明确表达玩家要决定或做的事，不要含糊地只写“听他的”。
   - prompt: the English visual prompt for AFTER she chooses this option, including its concrete consequence, following the mode-specific rules above.
-  - spokenLine: in video mode, exactly one short, natural Mandarin sentence the man says during that resulting shot, without a name prefix, quotation marks or stage directions. In still mode, null.
+  - spokenLine: in video mode, exactly one natural Mandarin sentence of 4-18 Chinese characters that the man can say comfortably within five seconds, without a name prefix, quotation marks or stage directions. In still mode, null.
   - cut: true for a location/time jump; do not prolong a scene just to keep cut false.
 - continuation: required only when interaction is "auto"; otherwise null. Use the same label/prompt/spokenLine/cut shape. Its label is internal progress text, not a player choice.`;
 
@@ -217,7 +219,7 @@ ${mustLeaveOpening
 Return ONLY JSON:
 {"prompt": string, "spokenLine": string|null, "label": string, "cut": boolean}
 - prompt: the English visual prompt under the selected mode's rules.
-- spokenLine: in video mode, exactly one short, natural Mandarin sentence the man says in this shot, without a name prefix, quotation marks or stage directions. In still mode, null.
+- spokenLine: in video mode, exactly one natural Mandarin sentence of 4-18 Chinese characters that the man can say comfortably within five seconds, without a name prefix, quotation marks or stage directions. In still mode, null.
 - label: 中文，四到十二个字，像章节小标题一样自然简洁。不要出现“准备开始”“当前活动”“玩家愿望”等幕后措辞。
 - cut: true for a location/time jump, false only when continuing the current place and time.`;
 
@@ -231,7 +233,7 @@ Skip routine waiting and repeated gestures. Keep the same place unless the answe
 Return ONLY JSON:
 {"prompt": string, "spokenLine": string|null, "label": string, "cut": boolean}
 - prompt: English visual prompt showing the consequence of her answer.
-- spokenLine: in video mode, exactly one short, natural Mandarin sentence the man says in this shot, without a name prefix, quotation marks or stage directions. In still mode, null.
+- spokenLine: in video mode, exactly one natural Mandarin sentence of 4-18 Chinese characters that the man can say comfortably within five seconds, without a name prefix, quotation marks or stage directions. In still mode, null.
 - label: brief 中文 description of this step.
 - cut: true for a change of place or a time jump; otherwise false.`;
 
@@ -254,10 +256,11 @@ function visibleText(value: unknown, max: number): string {
 }
 
 function readSpokenLine(value: unknown): string | null {
-  const line = visibleText(value, 56)
+  const line = visibleText(value, 36)
     .replace(/^[\s\"'“”‘’「」『』]+|[\s\"'“”‘’「」『』]+$/g, "")
     .trim();
-  return /[\u3400-\u9fff]/.test(line) ? line : null;
+  const chineseCharacters = line.match(/[\u3400-\u9fff]/g)?.length ?? 0;
+  return chineseCharacters >= 4 && chineseCharacters <= 18 ? line : null;
 }
 
 function readDecisionKey(value: unknown): string {

@@ -129,8 +129,10 @@ export function portraitPrompt(him: Character, style: StyleKey): string {
     `the romantic male lead of an otome game. Refined attractive adult male ` +
     `features, clear masculine facial structure and body proportions; never a ` +
     `woman, girl, feminine or androgynous character, child, couple, or group. ` +
-    `Full figure, standing naturally against a plain neutral background, with ` +
-    `no props or scenery: ${descriptorPhrase(him)}. Keep every requested ` +
+    `Three-quarter-length portrait, standing naturally against a plain neutral ` +
+    `background, with no props or scenery: ${descriptorPhrase(him)}. His face ` +
+    `is unobstructed and clearly readable in a subtle three-quarter view, with ` +
+    `his eyes meeting the viewer. Keep every requested ` +
     `descriptor while preserving an unmistakably adult male appearance. Warm ` +
     `soft morning light. ${STYLES[style].still}`
   );
@@ -149,9 +151,11 @@ export function portraitPrompt(him: Character, style: StyleKey): string {
 export function restylePrompt(_him: Character, style: StyleKey): string {
   return (
     `The reference image is the identity reference for one adult man. Redraw ` +
-    `that same man as a handsome romantic male lead: full figure, standing ` +
-    `naturally against a plain neutral background, no props, no scenery, nobody ` +
-    `else. Keep his exact face, hair, build, clothing, sex, and identity from ` +
+    `that same man as a handsome romantic male lead in a three-quarter-length ` +
+    `portrait, standing naturally against a plain neutral background. His face ` +
+    `is unobstructed and clearly readable in a subtle three-quarter view, with ` +
+    `his eyes meeting the viewer. Keep his exact face, hair, build, clothing, ` +
+    `sex, and identity from ` +
     `the reference. Do not feminize him or turn him into a woman, girl, ` +
     `androgynous character, child, couple, or group. The finished portrait must ` +
     `show exactly one unmistakably adult man. ${STYLES[style].still} ` +
@@ -171,24 +175,23 @@ export function restylePrompt(_him: Character, style: StyleKey): string {
  *
  * So LEAD is short and goes in front — it establishes whose eyes this is
  * before the model has read anything else — and GUARD goes after the action,
- * carrying only the negatives that are actually load-bearing.
+ * ending on the intended single-subject composition.
  */
 
 /**
  * Front of every prompt. Declare the camera as the viewer's own eyesight
- * before the model sees any action, and make the viewer explicitly off-screen.
- * This prevents the model from turning a grammatical "she" into a second
- * visible character or reverting to a neutral observer angle.
+ * before the model sees any action. Story-generated visual actions use only
+ * the camera or unseen viewer for the player, so this stays short and positive.
  */
 export const POV_LEAD =
-  "STRICT First-person POV from the viewer's eyes; the camera is the viewer's eyesight and the viewer stays completely off-screen.";
+  "Direct first-person eye-level view from the unseen viewer.";
 
 /**
  * Close every video prompt with the intended positive composition so H3
- * finishes on the subject and viewpoint rather than a list of exclusions.
+ * finishes on the single subject and stable viewpoint.
  */
 export const POV_GUARD =
-  "A direct first-person composition from the unseen viewer's eye line. The handsome adult man faces the lens as the sole visible person, framed naturally within the surrounding scene.";
+  "The handsome adult man is the sole visible person, facing the lens in a stable cinematic composition.";
 
 /**
  * MiniMax camera commands, in square brackets, up to three per bracket for a
@@ -211,10 +214,10 @@ export const DEFAULT_SHOT_TAG = "[Static shot]";
  * Mandarin sentence; a shot without one receives a simple silent soundtrack.
  */
 export function soundPrompt(spokenLine: string | null): string {
-  const line = spokenLine?.replace(/[“”"]/g, "").replace(/\s+/g, " ").trim().slice(0, 56);
+  const line = spokenLine?.replace(/[“”"]/g, "").replace(/\s+/g, " ").trim().slice(0, 28);
   return line
-    ? `SOUNDTRACK: synchronized natural ambience and soft music. The man says exactly one sentence in clear, natural Mandarin with a warm adult male voice: “${line}” His delivery is conversational and matches his visible expression.`
-    : "SOUNDTRACK: synchronized natural ambience and soft music. The man remains silent and communicates through his expression and movement.";
+    ? `Audio: quiet natural ambience and soft instrumental music. The young man speaks once in a clear, warm adult male Mandarin voice, saying exactly: “${line}”`
+    : "Audio: quiet natural ambience and soft instrumental music. The young man is silent.";
 }
 
 /** Where the game opens, in English, for the painter and the storyteller. */
@@ -269,7 +272,7 @@ export function openingShotPrompt(him: Character): string {
 }
 
 /** Seconds per main-story shot. */
-export const SHOT_SECONDS = 10;
+export const SHOT_SECONDS = 5;
 /** The waking prologue is a doorway, never its own scene. */
 export const OPENING_SHOT_SECONDS = 5;
 /** 768P is noticeably sharper on faces, which is the whole point here. */
