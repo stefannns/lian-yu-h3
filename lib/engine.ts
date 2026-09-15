@@ -106,6 +106,7 @@ interface Prepared {
 
 interface SceneRequest {
   prompt: string;
+  spokenLine?: string | null;
   action: string | null;
   kind: Shot["kind"];
   attempted: string;
@@ -412,16 +413,18 @@ export class Director {
         mustLeaveOpening
           ? `Cut directly to the central scene the viewer asked for: ${wish}. ` +
             `The young man — ${him.descriptor} — is already there, facing the unseen viewer. ` +
-            `Show the activity ready for the player's first meaningful decision; no bedroom or getting ready.`
+            `Show the activity at its first meaningful decision in the activity's main location.`
           : `The young man — ${him.descriptor} — responds to what the viewer wants of ` +
             `this morning: ${wish}. One clear, tender physical action, unhurried.`,
         this.style,
         this.videoOff
       ),
+      spokenLine: null,
       cut: mustLeaveOpening,
     };
     this.cannedRequest = {
       prompt: wishShot.prompt,
+      spokenLine: wishShot.spokenLine,
       // The first visible progress title is the player's own wish. The model's
       // visual-prompt label is useful internally but must not rewrite her words.
       action: wish.slice(0, 40),
@@ -458,6 +461,7 @@ export class Director {
     this.set({ phase: "filming", workingLabel: choice.label, choices: [], notice: null, canRetryScene: false });
     void this.filmAndLand(token, {
       prompt: choice.prompt,
+      spokenLine: choice.spokenLine,
       action: choice.label,
       kind: "choice",
       attempted: choice.label,
@@ -517,6 +521,7 @@ export class Director {
 
     const shot = written ?? {
       label: text,
+      spokenLine: null,
       prompt: dress(
         `The young man — ${him.descriptor} — responds as the viewer does this: ${text}. ` +
           `Advance the chosen activity with a complete view of the current setting: ${this.scene}.`,
@@ -526,6 +531,7 @@ export class Director {
     };
     void this.filmAndLand(token, {
       prompt: shot.prompt,
+      spokenLine: shot.spokenLine,
       action: shot.label,
       kind: "typed",
       attempted: text,
@@ -670,6 +676,7 @@ export class Director {
           action: args.action,
           kind: args.kind,
           prompt: args.prompt,
+          spokenLine: args.spokenLine ?? null,
           still: false,
           videoUrl: "",
           rawUrl: "",
@@ -708,6 +715,7 @@ export class Director {
       attempted: string;
       decisionKey?: string;
       prompt: string;
+      spokenLine?: string | null;
       fromFrame?: string;
     }
   ): Promise<Prepared | null> {
@@ -732,6 +740,7 @@ export class Director {
           action: args.action,
           kind: args.kind,
           prompt: args.prompt,
+          spokenLine: args.spokenLine ?? null,
           still: true,
           videoUrl: "",
           rawUrl: "",
@@ -882,6 +891,7 @@ export class Director {
         prepared.shot.kind === "typed",
       memory: this.memory,
       attempted: prepared.attempted,
+      spokenLine: prepared.shot.spokenLine,
       previousLabels: this.offered,
       beat: prepared.shot.beat,
       style: this.style,
@@ -977,6 +987,7 @@ export class Director {
       });
       void this.filmAndLand(token, {
         prompt: next.prompt,
+        spokenLine: next.spokenLine,
         action: next.label,
         kind: "auto",
         attempted: next.label,

@@ -16,8 +16,10 @@ export type Phase =
 export interface Choice {
   /** 中文, shown on the card. Second person, short. */
   label: string;
-  /** English prompt for the shot this move produces. */
+  /** H3 prompt: English visual action plus the exact Mandarin spoken line. */
   prompt: string;
+  /** Exact Mandarin sentence H3 should speak; null for a silent/still shot. */
+  spokenLine?: string | null;
   /**
    * This move CUTS to a new scene rather than continuing the current one.
    *
@@ -61,8 +63,10 @@ export interface Shot {
   /** What caused this shot — player action or story-led progress; null for opening. */
   action: string | null;
   kind: "opening" | "intent" | "choice" | "typed" | "auto";
-  /** The English prompt that filmed it. Kept for the log. */
+  /** The complete prompt that filmed it. Kept for the log. */
   prompt: string;
+  /** Exact LLM-written Mandarin sentence supplied to H3. */
+  spokenLine?: string | null;
   /**
    * True when this beat was PAINTED rather than filmed — 无视频模式. The clip
    * fields are empty and the still is carried in `thumb`, which the stage

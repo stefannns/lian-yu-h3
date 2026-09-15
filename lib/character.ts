@@ -20,9 +20,9 @@
  *
  * The LOOK is a separate player choice and lives in lib/styles.ts.
  *
- * Everything player-facing is 中文. Every prompt sent to a model is English:
- * h3 and the image models all compose visibly worse from Chinese prompts, and
- * the player never sees a prompt.
+ * Everything player-facing is 中文. Visual directions sent to H3 and the image
+ * models remain English because they compose more reliably that way. H3's exact
+ * LLM-written Mandarin sentence is the one exception, embedded as spoken audio.
  */
 
 import { STYLES, type StyleKey } from "./styles";
@@ -184,16 +184,11 @@ export const POV_LEAD =
   "STRICT First-person POV from the viewer's eyes; the camera is the viewer's eyesight and the viewer stays completely off-screen.";
 
 /**
- * After the action. Only the failures actually observed on screen, stated as
- * bans rather than as prose: h3 parks the back of the viewer's own head in a
- * foreground corner, and it pads a quiet domestic frame with extras.
+ * Close every video prompt with the intended positive composition so H3
+ * finishes on the subject and viewpoint rather than a list of exclusions.
  */
-export const TEXT_GUARD =
-  "ZERO VISIBLE TEXT OR TEXT-LIKE MARKS IN EVERY FRAME. No burned-in subtitles, closed captions, dialogue text, lower thirds, title cards, end cards, credits, speech bubbles, words, letters, numbers, glyphs, pseudo-text, scrambled or deformed writing, signs, labels, logos, watermarks, UI or interface.";
-
 export const POV_GUARD =
-  "Exactly one visible person: the handsome adult man facing the camera. No viewer body, hands, hair, shadow or reflection; no other person, duplicate, third-person, over-the-shoulder, selfie, mirror shot or background people. " +
-  TEXT_GUARD;
+  "A direct first-person composition from the unseen viewer's eye line. The handsome adult man faces the lens as the sole visible person, framed naturally within the surrounding scene.";
 
 /**
  * MiniMax camera commands, in square brackets, up to three per bracket for a
@@ -212,12 +207,15 @@ export const SHOT_TAGS = true;
 export const DEFAULT_SHOT_TAG = "[Static shot]";
 
 /**
- * FastH3 generates video and sound together. This clause keeps any incidental
- * speech on the visible male lead's Mandarin voice and explicitly separates
- * heard audio from text rendered into the image.
+ * FastH3 generates picture and sound together. Give it the exact LLM-written
+ * Mandarin sentence; a shot without one receives a simple silent soundtrack.
  */
-export const SOUND =
-  "AUDIO TRACK ONLY: synchronized natural ambience and soft music. If speech occurs, it is heard only from the man on screen in one clear, warm adult male Mandarin voice; no female voice or gibberish. Spoken dialogue exists only in the audio track and is never visually transcribed, auto-captioned or burned into the video.";
+export function soundPrompt(spokenLine: string | null): string {
+  const line = spokenLine?.replace(/[“”"]/g, "").replace(/\s+/g, " ").trim().slice(0, 56);
+  return line
+    ? `SOUNDTRACK: synchronized natural ambience and soft music. The man says exactly one sentence in clear, natural Mandarin with a warm adult male voice: “${line}” His delivery is conversational and matches his visible expression.`
+    : "SOUNDTRACK: synchronized natural ambience and soft music. The man remains silent and communicates through his expression and movement.";
+}
 
 /** Where the game opens, in English, for the painter and the storyteller. */
 export const OPENING_SCENE =

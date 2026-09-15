@@ -1,7 +1,6 @@
 "use client";
 
 import { FastH3Model } from "@reactor-models/fast-h3";
-import { TEXT_GUARD } from "./character";
 import type { ReactorMessage } from "@reactor-team/js-sdk";
 import { REACTOR_PROMPT_MAX_CHARS } from "./limits";
 
@@ -355,18 +354,11 @@ export async function filmShot(args: {
     if (prompt.length > REACTOR_PROMPT_MAX_CHARS) {
       throw new Error("Reactor prompt exceeds " + REACTOR_PROMPT_MAX_CHARS + " characters.");
     }
-    const noTextLead = prompt.startsWith("VIDEO NEGATIVE PROMPT");
-    const noTextGuard = prompt.endsWith(TEXT_GUARD);
-    if (!noTextLead || !noTextGuard) {
-      throw new Error("Reactor prompt is missing its anti-caption guards.");
-    }
     trace("enqueue_start", {
       beat: args.beat,
       seconds: SAFE_CLIP_SECONDS,
       source: startingFrame ? "starting_frame" : "previous_clip",
       promptChars: prompt.length,
-      noTextLead,
-      noTextGuard,
     });
     const reply = await client.sendCommand("enqueue", {
       prompt,

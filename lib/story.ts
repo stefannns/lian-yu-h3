@@ -22,8 +22,8 @@
  *   player stops believing either. It is told, repeatedly, to describe only
  *   what it can see.
  *
- *   CHOICES CARRY THEIR OWN PROMPT. Each card ships the English shot prompt
- *   that films it, written while the clip was still playing. Picking one
+ *   CHOICES CARRY THEIR OWN PROMPT. Each card ships the shot prompt and exact
+ *   Mandarin spoken line that film it, written while the prior clip plays. Picking one
  *   costs zero LLM calls, so a tap goes straight to h3.
  *
  * The storyteller controls pacing: routine progress continues automatically,
@@ -38,8 +38,7 @@ import {
   POV_GUARD,
   POV_LEAD,
   SHOT_TAGS,
-  SOUND,
-  TEXT_GUARD,
+  soundPrompt,
   type Character,
 } from "./character";
 import { PROMPT_WARN_CHARS } from "./limits";
@@ -56,7 +55,12 @@ const STORY_MODEL = "gemini-3.5-flash-lite";
  * are restated on EVERY shot, not once at the start — h3 sees only this
  * call, so a style declared at beat one is a style gone by beat three.
  */
-export function dress(action: string, style: StyleKey, still = false): string {
+export function dress(
+  action: string,
+  style: StyleKey,
+  still = false,
+  spokenLine: string | null = null
+): string {
   if (still) {
     const moment = action.replace(/^\s*\[[^\]]+\]\s*/, "");
     return `Create one standalone scene illustration. ${POV_LEAD} ${moment} ${STYLES[style].still} ${POV_GUARD}`;
@@ -72,8 +76,9 @@ export function dress(action: string, style: StyleKey, still = false): string {
   // The camera used to be one long block bolted on after the action, which
   // announced the POV last and buried the shot under constraints.
   const tag = SHOT_TAGS && !/^\s*\[/.test(action) ? `${DEFAULT_SHOT_TAG} ` : "";
+  const sound = soundPrompt(spokenLine);
   const dressed =
-    `${tag}${POV_LEAD} ${action} ${SOUND} ${STYLES[style].prompt} ${POV_GUARD}`;
+    `${tag}${POV_LEAD} ${action} ${sound} ${STYLES[style].prompt} ${POV_GUARD}`;
   if (dressed.length <= PROMPT_WARN_CHARS) return dressed;
 
   // Over budget. The clauses are fixed and each one is load-bearing, so the
@@ -90,7 +95,7 @@ export function dress(action: string, style: StyleKey, still = false): string {
     `[dress] action trimmed ${action.length} -> ${trimmed.length} chars to fit ` +
       `the ${PROMPT_WARN_CHARS}-char prompt budget`
   );
-  return `${tag}${POV_LEAD} ${trimmed} ${SOUND} ${STYLES[style].prompt} ${POV_GUARD}`;
+  return `${tag}${POV_LEAD} ${trimmed} ${sound} ${STYLES[style].prompt} ${POV_GUARD}`;
 }
 
 /**
@@ -99,17 +104,13 @@ export function dress(action: string, style: StyleKey, still = false): string {
  * setting. The engine owns this because it chooses the API input.
  */
 export function imageKey(args: { frame: boolean; continuation: boolean }): string {
-  // Fast H3 exposes one positive prompt and no separate negative-prompt field,
-  // so the text ban leads the request here and is repeated by POV_GUARD at the
-  // end of dress(). This specifically counters captions invented from speech.
-  const noText = `VIDEO NEGATIVE PROMPT: ${TEXT_GUARD} Never visualize or auto-caption the audio. `;
   if (args.continuation) {
-    return `${noText}Continue directly from the previous clip's retained final frame: same setting, light, viewpoint and man. `;
+    return "Continue directly from the previous clip's retained final frame with the same setting, light, viewpoint and man. ";
   }
   if (args.frame) {
-    return `${noText}Animate the uploaded 16:9 scene starting frame; keep its man, setting, light and first-person viewpoint. `;
+    return "Animate the uploaded 16:9 scene starting frame, preserving its man, setting, light and first-person viewpoint. ";
   }
-  return noText;
+  return "Begin from the supplied scene composition. ";
 }
 
 const sharedRules = (him: Character, still = false) => `You write a first-person romantic story driven by the player's chosen activity.
@@ -136,14 +137,14 @@ A brief affectionate gesture can colour an activity, but cannot replace progress
 PACING AND LOCATION
 Waking is only a single brief opening prologue, at most five seconds. The next scene goes directly to the requested activity. Never restart waking or preparation in the middle of the story. Stay in bed only if explicitly requested.
 cut: true means a new place or a meaningful time jump. Use it freely to skip uneventful work or waiting. cut: false means the current scene. Both must keep the character and the player's established decisions.
-Warm romance, nothing explicit, no nudity or violence. Dialogue remains Chinese UI text. Never request visible lettering, subtitles or captions in a visual prompt. If an action depicts him speaking, do not invent a quoted line; the fixed audio rule enforces one natural adult male Mandarin voice.
+Warm romance, nothing explicit, no nudity or violence. For every video move, write one short, natural Mandarin sentence in spokenLine. The English action describes only visible movement; the runtime places spokenLine verbatim in H3's soundtrack direction. For still images, spokenLine is null.
 
 ${still
   ? `WRITING AN INDEPENDENT STILL IMAGE
 Write 45-90 English words, at most 650 characters. Describe ONE readable moment, its complete location, relevant objects, his pose and the visible result of the player's action. Each image is generated independently; no previous scene image is supplied. Character portrait is for identity only.
 Do not ask to edit, continue or reproduce an earlier frame or its camera. Do not write a sequence, duration, camera-motion tags, sound, or video instructions. Include the scene's important details every time, even when cut is false.`
   : `WRITING A VIDEO ACTION
-Write 40-80 English words, at most 480 characters. Lead with one meaningful physical action and two or three chronological beats. Within a scene the previous frame supplies continuity; for a cut describe the new place fully. Optional camera commands: [Static shot], [Push in], [Tilt down]. No dialogue, sound instructions, UI, equipment or shot numbers in the action.`}
+Write 40-80 English words, at most 480 characters. Lead with one meaningful physical action and two or three chronological beats. Within a scene the previous frame supplies continuity; for a cut describe the new place fully. Optional camera commands: [Static shot], [Push in], [Tilt down]. Keep dialogue and sound directions in spokenLine rather than the English action. Write the action as positive, observable direction.`}
 
 Name him as "the young man — ${descriptorPhrase(him)} —" the first time, then "he". Never insert his Chinese name into an English visual prompt.`;
 
@@ -153,7 +154,7 @@ ${still ? "You are given one generated still showing the current moment. It is n
 ${sharedRules(him, still)}
 
 YOUR JOB
-Narrate only what the supplied image(s) actually show. Do not claim an intended action happened if it is absent. In a still, do not invent unseen before/after motion. Use the current image as visual truth; use the original wish, memory and accepted decisions to choose the next meaningful step.
+Narrate only what the supplied image(s) actually show. Do not claim an intended action happened if it is absent. In a still, do not invent unseen before/after motion. Use the current image as visual truth; use the original wish, memory and accepted decisions to choose the next meaningful step. The supplied frames contain no audio, so CURRENT CLIP SPOKEN LINE is the exact sentence the man audibly said and should be preserved as story fact.
 A decorative introductory beat is over as soon as it is narrated. Continue the requested activity toward its next milestone or payoff.
 
 STORY PLAN AND DECISION GATE
@@ -186,7 +187,7 @@ Apply the same gate to every kind of wish. These are examples of classification,
 - exploration: route or investigation target can be choices; walking and searching are auto; her theory can be free.
 
 Return ONLY JSON:
-{"scene": string, "narration": string, "line": string|null, "memory": string, "moved": boolean, "interaction": "auto"|"choices"|"free", "decisionKey": string|null, "decisionReason": string, "choices": [{"label": string, "prompt": string, "cut": boolean}], "continuation": {"label": string, "prompt": string, "cut": boolean}|null}
+{"scene": string, "narration": string, "line": string|null, "memory": string, "moved": boolean, "interaction": "auto"|"choices"|"free", "decisionKey": string|null, "decisionReason": string, "choices": [{"label": string, "prompt": string, "spokenLine": string|null, "cut": boolean}], "continuation": {"label": string, "prompt": string, "spokenLine": string|null, "cut": boolean}|null}
 
 - scene: one English sentence describing the current image's location and visible state.
 - narration: 中文，第二人称，一到两句，简洁具体，说明眼前画面和活动进展，不描写玩家外貌，不重复无意义的暧昧动作。
@@ -199,8 +200,9 @@ Return ONLY JSON:
 - choices: exactly two only when interaction is "choices"; otherwise []. They must materially change or define what follows. They need not be emotional opposites.
   - label: 中文，四到十八个字，明确表达玩家要决定或做的事，不要含糊地只写“听他的”。
   - prompt: the English visual prompt for AFTER she chooses this option, including its concrete consequence, following the mode-specific rules above.
+  - spokenLine: in video mode, exactly one short, natural Mandarin sentence the man says during that resulting shot, without a name prefix, quotation marks or stage directions. In still mode, null.
   - cut: true for a location/time jump; do not prolong a scene just to keep cut false.
-- continuation: required only when interaction is "auto"; otherwise null. Use the same label/prompt/cut shape. Its label is internal progress text, not a player choice.`;
+- continuation: required only when interaction is "auto"; otherwise null. Use the same label/prompt/spokenLine/cut shape. Its label is internal progress text, not a player choice.`;
 
 const intentSystem = (him: Character, mustLeaveOpening: boolean, still = false) => `Turn the player's original wish into the FIRST MAIN SCENE of a 乙女游戏.
 
@@ -213,8 +215,9 @@ ${mustLeaveOpening
   : "PACING DECISION: the player explicitly requested staying in bed. Remain there only as the wish requires."}
 
 Return ONLY JSON:
-{"prompt": string, "label": string, "cut": boolean}
+{"prompt": string, "spokenLine": string|null, "label": string, "cut": boolean}
 - prompt: the English visual prompt under the selected mode's rules.
+- spokenLine: in video mode, exactly one short, natural Mandarin sentence the man says in this shot, without a name prefix, quotation marks or stage directions. In still mode, null.
 - label: 中文，四到十二个字，像章节小标题一样自然简洁。不要出现“准备开始”“当前活动”“玩家愿望”等幕后措辞。
 - cut: true for a location/time jump, false only when continuing the current place and time.`;
 
@@ -226,8 +229,9 @@ Use the original wish, current scene, recorded choices and the latest answer tog
 Skip routine waiting and repeated gestures. Keep the same place unless the answer or progress needs a change. If the player explicitly changes direction, honour that change.
 
 Return ONLY JSON:
-{"prompt": string, "label": string, "cut": boolean}
+{"prompt": string, "spokenLine": string|null, "label": string, "cut": boolean}
 - prompt: English visual prompt showing the consequence of her answer.
+- spokenLine: in video mode, exactly one short, natural Mandarin sentence the man says in this shot, without a name prefix, quotation marks or stage directions. In still mode, null.
 - label: brief 中文 description of this step.
 - cut: true for a change of place or a time jump; otherwise false.`;
 
@@ -249,6 +253,13 @@ function visibleText(value: unknown, max: number): string {
   return text && !VISIBLE_META.test(text) ? text : "";
 }
 
+function readSpokenLine(value: unknown): string | null {
+  const line = visibleText(value, 56)
+    .replace(/^[\s\"'“”‘’「」『』]+|[\s\"'“”‘’「」『』]+$/g, "")
+    .trim();
+  return /[\u3400-\u9fff]/.test(line) ? line : null;
+}
+
 function readDecisionKey(value: unknown): string {
   const key = str(value, 48);
   return /^[a-z][a-z0-9_]{1,47}$/.test(key) ? key : "";
@@ -262,8 +273,14 @@ function readChoices(raw: unknown, style: StyleKey, still = false): Choice[] {
     const record = entry as Record<string, unknown>;
     const label = visibleText(record.label, 40);
     const prompt = str(record.prompt, 900);
-    if (label && prompt) {
-      out.push({ label, prompt: dress(prompt, style, still), cut: record.cut === true });
+    const spokenLine = still ? null : readSpokenLine(record.spokenLine);
+    if (label && prompt && (still || spokenLine)) {
+      out.push({
+        label,
+        prompt: dress(prompt, style, still, spokenLine),
+        spokenLine,
+        cut: record.cut === true,
+      });
     }
   }
   return out;
@@ -307,6 +324,7 @@ export async function tellNext(args: {
   opening?: boolean;
   automaticBeats?: number;
   playerLed?: boolean;
+  spokenLine?: string | null;
   call?: LlmCaller;
 }): Promise<Beat | null> {
   const prompt =
@@ -316,6 +334,7 @@ export async function tellNext(args: {
     `PREVIOUS SCENE: ${args.scene || (args.opening ? OPENING_SCENE : "Read the current image." )}\n` +
     `STORY SO FAR AND ACCEPTED DECISIONS: ${args.memory || (args.opening ? openingMemory() : "The main activity is beginning.")}\n` +
     `CAUSE OF THE CURRENT SCENE (player action or story-led progress): ${args.attempted}\n` +
+    `CURRENT CLIP SPOKEN LINE: ${args.spokenLine || "The clip was silent."}\n` +
     `CONSECUTIVE STORY-LED BEATS SINCE HER LAST INPUT: ${args.automaticBeats ?? 0}\n` +
     `CURRENT SCENE WAS CAUSED BY HER CHOICE OR FREE ANSWER: ${args.playerLed ? "yes" : "no"}\n` +
     (args.previousLabels.length > 0
@@ -425,8 +444,14 @@ export async function writeIntentShot(
       const data = parseJsonObjectReply(output);
       const prompt = str(data.prompt, 900);
       const label = visibleText(data.label, 40);
-      if (prompt) {
-        return { label: label || text, prompt: dress(prompt, style, still), cut: mustLeaveOpening || data.cut === true };
+      const spokenLine = still ? null : readSpokenLine(data.spokenLine);
+      if (prompt && (still || spokenLine)) {
+        return {
+          label: label || text,
+          prompt: dress(prompt, style, still, spokenLine),
+          spokenLine,
+          cut: mustLeaveOpening || data.cut === true,
+        };
       }
     } catch (cause) {
       console.warn(`[writeIntentShot] attempt ${attempt + 1} failed:`, cause);
@@ -470,10 +495,12 @@ export async function writeTypedShot(args: {
     });
     const data = parseJsonObjectReply(output);
     const prompt = str(data.prompt, 900);
-    if (!prompt) return null;
+    const spokenLine = args.still ? null : readSpokenLine(data.spokenLine);
+    if (!prompt || (!args.still && !spokenLine)) return null;
     return {
       label: visibleText(data.label, 40) || text,
-      prompt: dress(prompt, args.style, args.still),
+      prompt: dress(prompt, args.style, args.still, spokenLine),
+      spokenLine,
       cut: data.cut === true,
     };
   } catch (cause) {

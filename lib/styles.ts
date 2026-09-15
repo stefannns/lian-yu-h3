@@ -33,7 +33,7 @@ export const STYLES: Record<StyleKey, StylePreset> = {
   anime: {
     label: "日系动画",
     prompt:
-      "Japanese otome anime CG: refined adult proportions, crisp cel shading and ink lines, delicate background, warm romantic light; never childish or cartoonish.",
+      "Japanese otome anime CG: refined adult proportions, crisp cel shading and ink lines, delicate background, warm romantic light, sophisticated mature romantic character design.",
     still:
       "Rendered as a refined Japanese otome anime game CG. Unless the character " +
       "description or identity reference explicitly specifies another adult identity, " +
