@@ -58,7 +58,14 @@ export class ImageGenError extends Error {
   }
 }
 
-const TIMEOUT_MS = 180_000;
+/**
+ * One scene owns one wall-clock budget, including time spent waiting behind a
+ * previous image and any provider retry. The old three-minute *per attempt*
+ * timeout could leave the game apparently frozen for six to nine minutes.
+ */
+const IMAGE_BUDGET_MS = 75_000;
+const IMAGE_ATTEMPT_TIMEOUT_MS = 45_000;
+const MIN_IMAGE_ATTEMPT_MS = 5_000;
 
 /** Safe player-facing messages; raw provider responses stay out of the UI. */
 export function imageFailureMessage(cause: unknown): string {
@@ -67,6 +74,9 @@ export function imageFailureMessage(cause: unknown): string {
   }
   if (cause instanceof ImageGenError && (cause.status === 401 || cause.status === 403)) {
     return "图片服务认证或权限异常，请检查 Google Cloud 配置。";
+  }
+  if (cause instanceof ImageGenError && cause.status === 504) {
+    return "图片生成超时了。请重试这一幕，不会丢失之前的选择。";
   }
   return "画面暂时没生成成功，请稍后重试。";
 }
@@ -115,7 +125,11 @@ function splitDataUri(uri: string): { mime: string; data: string } | null {
  * Missing ADC is an error, never permission to switch billing to an API key.
  * Key-only installations without a Vertex selection use the Gemini API.
  */
-async function googleImage(request: ImageRequest, modelOverride?: string): Promise<Buffer> {
+async function googleImage(
+  request: ImageRequest,
+  modelOverride?: string,
+  timeoutMs = IMAGE_ATTEMPT_TIMEOUT_MS
+): Promise<Buffer> {
   const key =
     process.env.GOOGLE_IMAGE_API_KEY ||
     process.env.GOOGLE_API_KEY ||
@@ -201,7 +215,9 @@ async function googleImage(request: ImageRequest, modelOverride?: string): Promi
           imageConfig: { aspectRatio: request.aspect, imageSize: "1K" },
         },
       }),
-      signal: AbortSignal.timeout(TIMEOUT_MS),
+      signal: AbortSignal.timeout(
+        Math.max(MIN_IMAGE_ATTEMPT_MS, Math.min(IMAGE_ATTEMPT_TIMEOUT_MS, timeoutMs))
+      ),
     });
 
   // These models disagree about whether TEXT may accompany IMAGE: some
@@ -331,12 +347,21 @@ export function activeProvider(): string {
  * transport failure gets one retry; authentication and content failures do
  * not retry. Never change providers or billing transports during a retry.
  */
-async function generateImageWithRetry(request: ImageRequest): Promise<Buffer> {
+async function generateImageWithRetry(request: ImageRequest, deadline: number): Promise<Buffer> {
   const provider = PROVIDERS[activeProvider()];
   for (let attempt = 1; ; attempt++) {
+    const remainingMs = deadline - Date.now();
+    if (remainingMs < MIN_IMAGE_ATTEMPT_MS) {
+      throw new ImageGenError("Image generation deadline exhausted.", 504);
+    }
     try {
-      return await provider(request);
+      return provider === googleImage
+        ? await googleImage(request, undefined, remainingMs)
+        : await provider(request);
     } catch (cause) {
+      if (deadline - Date.now() < MIN_IMAGE_ATTEMPT_MS) {
+        throw new ImageGenError("Image generation deadline exhausted.", 504);
+      }
       const status = cause instanceof ImageGenError ? cause.status : undefined;
       const configuredModel =
         process.env.VERTEX_IMAGE_MODEL?.trim() || "gemini-3.1-flash-lite-image";
@@ -351,7 +376,18 @@ async function generateImageWithRetry(request: ImageRequest): Promise<Buffer> {
         // minute in practice. Flash has a separate capacity pool and kept the
         // same portrait identity in our comparison, so use it once instead.
         console.warn("[imagegen] Lite capacity exhausted; using Flash for this scene");
-        return googleImage(request, "gemini-3.1-flash-image");
+        const fallbackRemainingMs = deadline - Date.now();
+        if (fallbackRemainingMs < MIN_IMAGE_ATTEMPT_MS) {
+          throw new ImageGenError("Image generation deadline exhausted.", 504);
+        }
+        try {
+          return await googleImage(request, "gemini-3.1-flash-image", fallbackRemainingMs);
+        } catch (fallbackCause) {
+          if (deadline - Date.now() < MIN_IMAGE_ATTEMPT_MS) {
+            throw new ImageGenError("Image generation deadline exhausted.", 504);
+          }
+          throw fallbackCause;
+        }
       }
       const transient = status === 429 || (status !== undefined && status >= 500);
       // Google's guidance is no more than two retries. 429 needs a much
@@ -365,6 +401,9 @@ async function generateImageWithRetry(request: ImageRequest): Promise<Buffer> {
         waitHint,
         baseDelay * 2 ** (attempt - 1) + Math.floor(Math.random() * 2_000)
       );
+      if (Date.now() + delay + MIN_IMAGE_ATTEMPT_MS >= deadline) {
+        throw new ImageGenError("Image generation deadline exhausted.", 504);
+      }
       console.warn("[imagegen] retrying transient failure", { status, attempt, delayMs: delay });
       await new Promise((done) => setTimeout(done, delay));
     }
@@ -377,7 +416,11 @@ async function generateImageWithRetry(request: ImageRequest): Promise<Buffer> {
 let imageQueue: Promise<void> = Promise.resolve();
 
 export function generateImage(request: ImageRequest): Promise<Buffer> {
-  const result = imageQueue.then(() => generateImageWithRetry(request));
+  // Start the deadline before entering the queue. A request that has already
+  // spent its budget waiting must not wake up later and create a paid image the
+  // browser has abandoned.
+  const deadline = Date.now() + IMAGE_BUDGET_MS;
+  const result = imageQueue.then(() => generateImageWithRetry(request, deadline));
   imageQueue = result.then(() => undefined, () => undefined);
   return result;
 }

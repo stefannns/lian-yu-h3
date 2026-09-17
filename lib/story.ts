@@ -45,7 +45,7 @@ import { PROMPT_WARN_CHARS } from "./limits";
 import { LlmError, llmCall, type LlmCaller } from "./llm";
 import { parseJsonObjectReply } from "./json";
 import { STYLES, type StyleKey } from "./styles";
-import type { Beat, Choice } from "./types";
+import type { Beat, Choice, IntentShot, PlannedDecision } from "./types";
 
 /** Story planning needs stronger instruction-following than moderation/routing. */
 const STORY_MODEL = "gemini-3.5-flash-lite";
@@ -53,6 +53,8 @@ const STORY_MODEL = "gemini-3.5-flash-lite";
 const STORY_READ_BUDGET_MS = 45_000;
 const STORY_ATTEMPT_TIMEOUT_MS = 30_000;
 const MIN_STORY_ATTEMPT_MS = 5_000;
+/** A planned player decision becomes mandatory after this many automatic beats. */
+export const MAX_AUTO_BEATS = 2;
 
 /**
  * Every prompt that reaches h3 goes through here. Camera, sound and style
@@ -111,10 +113,10 @@ export function dress(
  */
 export function imageKey(args: { frame: boolean; continuation: boolean }): string {
   if (args.continuation) {
-    return "Continue the prior clip as one continuous five-second shot with the same man, setting, light and viewpoint. ";
+    return "Continue the prior clip as one continuous shot with the same man, setting, light and viewpoint. ";
   }
   if (args.frame) {
-    return "Animate the supplied 16:9 starting frame as one continuous five-second shot, preserving its man, setting, light and viewpoint. ";
+    return "Animate the supplied 16:9 starting frame as one continuous shot, preserving its man, setting, light and viewpoint. ";
   }
   return "Begin from the supplied scene composition. ";
 }
@@ -143,14 +145,14 @@ A brief affectionate gesture can colour an activity, but cannot replace progress
 PACING AND LOCATION
 Waking is only a single brief opening prologue, at most five seconds. The next scene goes directly to the requested activity. Never restart waking or preparation in the middle of the story. Stay in bed only if explicitly requested.
 cut: true means a new place or a meaningful time jump. Use it freely to skip uneventful work or waiting. cut: false means the current scene. Both must keep the character and the player's established decisions.
-Warm romance, nothing explicit, no nudity or violence. For every video move, write one natural Mandarin sentence of 4-18 Chinese characters in spokenLine, comfortable to say once within five seconds. The English action describes only visible movement; the runtime places spokenLine verbatim in H3's audio direction. For still images, spokenLine is null.
+Warm romance, nothing explicit, no nudity or violence. For every video move, write one natural Mandarin sentence of 4-18 Chinese characters in spokenLine, comfortable to say once during the clip. The English action describes only visible movement; the runtime places spokenLine verbatim in H3's audio direction. For still images, spokenLine is null.
 
 ${still
   ? `WRITING AN INDEPENDENT STILL IMAGE
 Write 45-90 English words, at most 650 characters. Describe ONE readable moment, its complete location, relevant objects, his pose and the visible result of the player's action. Each image is generated independently; no previous scene image is supplied. Character portrait is for identity only.
 Do not ask to edit, continue or reproduce an earlier frame or its camera. Do not write a sequence, duration, camera-motion tags, sound, or video instructions. Include the scene's important details every time, even when cut is false.`
   : `WRITING A VIDEO ACTION
-Write 40-80 English words, at most 480 characters. Lead with one meaningful physical action and two or three chronological beats. Within a scene the previous frame supplies continuity; for a cut describe the new place fully. Optional camera commands: [Static shot], [Push in], [Tilt down]. Keep dialogue and sound directions in spokenLine rather than the English action. Write the action as positive, observable direction.`}
+For pace "short", write 40-80 English words with two or three chronological actions for a brief decision consequence or reaction. For pace "long", write 65-110 English words with three to five chronological actions that condense routine progress into one continuous 10-14 second sequence. Keep every prompt at most 650 characters. Within a scene the previous frame supplies continuity; for a cut describe the new place fully. Optional camera commands: [Static shot], [Push in], [Tilt down]. Keep dialogue and sound directions in spokenLine rather than the English action. Write the action as positive, observable direction.`}
 
 Name him as "the young man — ${descriptorPhrase(him)} —" the first time, then "he". Never insert his Chinese name into an English visual prompt.`;
 
@@ -168,24 +170,25 @@ Silently update this compact plan before every response:
 1. concrete goal of the original wish;
 2. current major phase and completed milestones;
 3. facts and preferences already fixed by her words;
-4. unresolved decisions that could materially change the route, result or relationship;
+4. the ordered PLANNED DECISION POINTS and which remain unresolved;
 5. the next visible milestone or emotional payoff.
 
-Choose exactly one interaction mode. Stop for her only if ALL are true:
-1. a real decision remains unresolved;
-2. its answer is needed before the next meaningful scene;
-3. different answers will materially change later scenes, the lasting result or a relationship boundary;
-4. its decisionKey is absent from RESOLVED DECISION KEYS.
-If any condition fails, use "auto".
+The decision agenda was written before the event began and contains at least three player-agency checkpoints. Preserve its order. A planned choice about flavour, colour, material, styling, arrangement, decoration, presentation, message or emotional meaning is meaningful because it visibly defines the result; it does not need to create a different plot branch. Never visually commit a planned preference before asking for it.
+
+Choose exactly one interaction mode:
+1. If the current scene was caused by her choice/free answer, use "auto" once to show its consequence.
+2. Otherwise, when the next planned decision is needed for the upcoming phase, stop for it using its exact key.
+3. After ${MAX_AUTO_BEATS} consecutive story-led beats, a next planned decision is mandatory. Do not return another auto continuation while a planned decision remains.
+4. Only use "auto" for necessary process, travel, transition, reaction or payoff between planned decisions.
 
 - "choices": the due decision has a bounded set of natural alternatives and two examples help her decide. Return exactly two representative, materially different outcomes. Neither option may be a required step versus delay/refusal. The consequence must persist for at least two beats or define the result.
 - "free": her exact words, personal feeling, boundary, interpretation, title/message, creative idea or open request matter, and preset cards would flatten many valid answers. The line must ask a direct open question, not narrow her to an either/or pair.
-- "auto": continue required actions, setup, travel, transitions, reactions, process steps, time skips, sensory detail and romantic payoff. Do not ask a question. The continuation must visibly advance the wish.
+- "auto": continue required actions, setup, travel, transitions, reactions, process steps, time skips, sensory detail and romantic payoff. Do not ask a question. Condense related routine steps into one long continuous sequence rather than separate clips. The continuation must visibly advance the wish.
 
-Never manufacture a stop to keep the interface busy. Usually stop at most once per major phase, not once per image. After two auto beats, check for the next natural unresolved decision, but continue if none is due. If the current image was caused by her choice or free answer, first show at least one story-led consequence before another decision.
+Never add decisions outside the plan merely to keep the interface busy. Every planned decision must occur before the event's final payoff. If the current image was caused by her choice or free answer, first show one story-led consequence before the next planned decision.
 
 Apply the same gate to every kind of wish. These are examples of classification, never scripts:
-- cooking: the dish or overall style can be choices; recipe steps are auto; a personal inscription can be free;
+- cooking: flavour, filling, frosting colour and decoration style can be choices; recipe steps are condensed auto sequences; a personal inscription can be free;
 - outing: destination or major activity can be choices; travel and arrival are auto; what she wants to say there can be free;
 - movie/date: genre can be choices; setup and watching are auto; a personal interpretation can be free;
 - creative project: concept or material can be choices; execution is auto; title or message can be free;
@@ -193,7 +196,7 @@ Apply the same gate to every kind of wish. These are examples of classification,
 - exploration: route or investigation target can be choices; walking and searching are auto; her theory can be free.
 
 Return ONLY JSON:
-{"scene": string, "narration": string, "line": string|null, "memory": string, "moved": boolean, "interaction": "auto"|"choices"|"free", "decisionKey": string|null, "decisionReason": string, "choices": [{"label": string, "prompt": string, "spokenLine": string|null, "cut": boolean}], "continuation": {"label": string, "prompt": string, "spokenLine": string|null, "cut": boolean}|null}
+{"scene": string, "narration": string, "line": string|null, "memory": string, "moved": boolean, "interaction": "auto"|"choices"|"free", "decisionKey": string|null, "decisionReason": string, "choices": [{"label": string, "prompt": string, "spokenLine": string|null, "cut": boolean, "pace": "short"}], "continuation": {"label": string, "prompt": string, "spokenLine": string|null, "cut": boolean, "pace": "long"}|null}
 
 - scene: one English sentence describing the current image's location and visible state.
 - narration: 中文，第二人称，一到两句，简洁具体，说明眼前画面和活动进展，不描写玩家外貌，不重复无意义的暧昧动作。
@@ -208,7 +211,8 @@ Return ONLY JSON:
   - prompt: the English visual prompt for AFTER she chooses this option, including its concrete consequence, following the mode-specific rules above.
   - spokenLine: in video mode, exactly one natural Mandarin sentence of 4-18 Chinese characters that the man can say comfortably within five seconds, without a name prefix, quotation marks or stage directions. In still mode, null.
   - cut: true for a location/time jump; do not prolong a scene just to keep cut false.
-- continuation: required only when interaction is "auto"; otherwise null. Use the same label/prompt/spokenLine/cut shape. Its label is internal progress text, not a player choice.`;
+  - pace: "short" for decision consequences.
+- continuation: required only when interaction is "auto"; otherwise null. Use pace "long" and combine related process steps into one continuous sequence. Its label is internal progress text, not a player choice.`;
 
 const intentSystem = (him: Character, mustLeaveOpening: boolean, still = false) => `Turn the player's original wish into the FIRST MAIN SCENE of a 乙女游戏.
 
@@ -216,16 +220,18 @@ ${sharedRules(him, still)}
 
 The five-second waking prologue is already over. Start the requested activity now, at its first useful decision; do not write another waking reaction, a getting-ready scene or an obligatory teasing scene.
 Show the activity at its first concrete working moment. Preserve every detail already stated in the wish, and leave other personal preferences visually undecided until they are actually needed.
+Before writing the first scene, plan 3-5 ordered decision points for this entire event. Every event needs at least three. Do not plan questions already answered by the wish. Spread them across early, middle and final phases. Include visually meaningful creative preferences such as flavour, colour, material, styling, decoration or presentation; these count even when they do not change the plot. Use free mode only when her exact words matter.
 ${mustLeaveOpening
   ? "PACING DECISION: return cut: true. Open directly on the activity; no bedroom, getting dressed or leaving home."
   : "PACING DECISION: the player explicitly requested staying in bed. Remain there only as the wish requires."}
 
 Return ONLY JSON:
-{"prompt": string, "spokenLine": string|null, "label": string, "cut": boolean}
+{"prompt": string, "spokenLine": string|null, "label": string, "cut": boolean, "decisionPlan": [{"key": string, "phase": string, "description": string, "mode": "choices"|"free"}]}
 - prompt: the English visual prompt under the selected mode's rules.
 - spokenLine: in video mode, exactly one natural Mandarin sentence of 4-18 Chinese characters that the man can say comfortably within five seconds, without a name prefix, quotation marks or stage directions. In still mode, null.
 - label: 中文，四到十二个字，像章节小标题一样自然简洁。不要出现“准备开始”“当前活动”“玩家愿望”等幕后措辞。
-- cut: true for a location/time jump, false only when continuing the current place and time.`;
+- cut: true for a location/time jump, false only when continuing the current place and time.
+- decisionPlan: 3-5 ordered, non-overlapping player decisions for this event. key is stable English snake_case; phase is a short English phase name; description is a concrete English statement of what remains for her to determine. Never include a preference already fixed in the wish.`;
 
 const typedSystem = (him: Character, still = false) => `Turn the player's latest answer or action into the NEXT MAIN-STORY SCENE. This is an ongoing activity, not an opening.
 
@@ -272,6 +278,53 @@ function readDecisionKey(value: unknown): string {
   return /^[a-z][a-z0-9_]{1,47}$/.test(key) ? key : "";
 }
 
+const FALLBACK_DECISION_PLAN: PlannedDecision[] = [
+  {
+    key: "activity_direction",
+    phase: "early",
+    description: "Choose a concrete approach, variation, material, route or style for the activity.",
+    mode: "choices",
+  },
+  {
+    key: "visual_finish",
+    phase: "middle",
+    description: "Choose a visible colour, finish, arrangement or presentation detail that defines the result.",
+    mode: "choices",
+  },
+  {
+    key: "personal_touch",
+    phase: "final",
+    description: "Choose the final decoration, message, meaning or personal touch before the reveal.",
+    mode: "free",
+  },
+];
+
+/** Guarantee the event has a usable three-point agenda even after a partial model reply. */
+export function ensureDecisionPlan(raw: unknown): PlannedDecision[] {
+  const plan: PlannedDecision[] = [];
+  const used = new Set<string>();
+  if (Array.isArray(raw)) {
+    for (const entry of raw.slice(0, 5)) {
+      if (!entry || typeof entry !== "object") continue;
+      const record = entry as Record<string, unknown>;
+      const key = readDecisionKey(record.key);
+      const phase = str(record.phase, 40);
+      const description = str(record.description, 180);
+      const mode = record.mode === "free" ? "free" : "choices";
+      if (!key || !phase || !description || used.has(key)) continue;
+      used.add(key);
+      plan.push({ key, phase, description, mode });
+    }
+  }
+  for (const fallback of FALLBACK_DECISION_PLAN) {
+    if (plan.length >= 3) break;
+    if (used.has(fallback.key)) continue;
+    used.add(fallback.key);
+    plan.push({ ...fallback });
+  }
+  return plan;
+}
+
 function readChoices(raw: unknown, style: StyleKey, still = false): Choice[] {
   if (!Array.isArray(raw)) return [];
   const out: Choice[] = [];
@@ -287,6 +340,7 @@ function readChoices(raw: unknown, style: StyleKey, still = false): Choice[] {
         prompt: dress(prompt, style, still, spokenLine),
         spokenLine,
         cut: record.cut === true,
+        pace: record.pace === "long" ? "long" : "short",
       });
     }
   }
@@ -326,6 +380,7 @@ export async function tellNext(args: {
   wish?: string;
   scene?: string;
   decisions?: string[];
+  decisionPlan?: PlannedDecision[];
   resolvedDecisionKeys?: string[];
   still?: boolean;
   opening?: boolean;
@@ -335,10 +390,19 @@ export async function tellNext(args: {
   call?: LlmCaller;
 }): Promise<Beat | null> {
   const deadline = Date.now() + STORY_READ_BUDGET_MS;
+  const resolved = new Set(args.resolvedDecisionKeys ?? []);
+  const planned = args.decisionPlan ?? [];
+  const nextPlanned = planned.find((decision) => !resolved.has(decision.key)) ?? null;
+  const decisionRequired = Boolean(
+    nextPlanned && !args.playerLed && (args.automaticBeats ?? 0) >= MAX_AUTO_BEATS
+  );
   const prompt =
     `ORIGINAL PLAYER WISH: ${args.wish || "Follow the player's current activity."}\n` +
     `ACCEPTED PLAYER ACTIONS: ${JSON.stringify(args.decisions ?? [])}\n` +
+    `PLANNED DECISION POINTS: ${JSON.stringify(planned)}\n` +
     `RESOLVED DECISION KEYS: ${JSON.stringify(args.resolvedDecisionKeys ?? [])}\n` +
+    `NEXT PLANNED DECISION: ${JSON.stringify(nextPlanned)}\n` +
+    `NEXT PLANNED DECISION IS NOW MANDATORY: ${decisionRequired ? "yes" : "no"}\n` +
     `PREVIOUS SCENE: ${args.scene || (args.opening ? OPENING_SCENE : "Read the current image." )}\n` +
     `STORY SO FAR AND ACCEPTED DECISIONS: ${args.memory || (args.opening ? openingMemory() : "The main activity is beginning.")}\n` +
     `CAUSE OF THE CURRENT SCENE (player action or story-led progress): ${args.attempted}\n` +
@@ -377,12 +441,20 @@ export async function tellNext(args: {
         timeoutMs: Math.min(STORY_ATTEMPT_TIMEOUT_MS, remainingMs),
       });
       const data = parseJsonObjectReply(output);
-      const choices = readChoices(data.choices, args.style, args.still);
-      const continuation = readChoices(
+      const choices = readChoices(data.choices, args.style, args.still).map((choice) => ({
+        ...choice,
+        pace: "short" as const,
+      }));
+      const parsedContinuation = readChoices(
         data.continuation ? [data.continuation] : [],
         args.style,
         args.still
       )[0] ?? null;
+      // Pacing is a runtime contract, not a suggestion to the model: choices
+      // get a quick reaction and routine progress gets one continuous clip.
+      const continuation = parsedContinuation
+        ? { ...parsedContinuation, pace: "long" as const }
+        : null;
       const narration = visibleText(data.narration, 300);
       const interaction =
         data.interaction === "auto" || data.interaction === "choices" || data.interaction === "free"
@@ -396,12 +468,13 @@ export async function tellNext(args: {
                 ? "choices"
                 : null;
       const decisionKey = readDecisionKey(data.decisionKey);
-      const resolved = new Set(args.resolvedDecisionKeys ?? []);
       if (!interaction || !narration) continue;
       if (interaction === "choices" && choices.length !== CHOICE_COUNT) continue;
       if (interaction === "auto" && !continuation) continue;
       if (args.playerLed && interaction !== "auto") continue;
+      if (decisionRequired && interaction === "auto") continue;
       if (interaction !== "auto" && (!decisionKey || resolved.has(decisionKey))) continue;
+      if (interaction !== "auto" && nextPlanned && decisionKey !== nextPlanned.key) continue;
       const rawLine = visibleText(data.line, 120);
       return {
         scene: str(data.scene, 400),
@@ -440,7 +513,7 @@ export async function writeIntentShot(
   mustLeaveOpening = false,
   still = false,
   call: LlmCaller = llmCall
-): Promise<Choice | null> {
+): Promise<IntentShot | null> {
   const text = wish.trim().slice(0, 280);
   if (!text) return null;
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -450,7 +523,7 @@ export async function writeIntentShot(
         // The wish is untrusted player text, so it is handed over as data
         // rather than pasted into the instructions.
         prompt: JSON.stringify({ player_wish: text }),
-        maxTokens: 800,
+        maxTokens: 1_200,
         temperature: 0.9,
         json: true,
         model: STORY_MODEL,
@@ -465,6 +538,8 @@ export async function writeIntentShot(
           prompt: dress(prompt, style, still, spokenLine),
           spokenLine,
           cut: mustLeaveOpening || data.cut === true,
+          pace: "short",
+          decisionPlan: ensureDecisionPlan(data.decisionPlan),
         };
       }
     } catch (cause) {
@@ -516,6 +591,7 @@ export async function writeTypedShot(args: {
       prompt: dress(prompt, args.style, args.still, spokenLine),
       spokenLine,
       cut: data.cut === true,
+      pace: "short",
     };
   } catch (cause) {
     console.warn("[writeTypedShot] failed:", cause);

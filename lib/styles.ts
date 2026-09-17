@@ -46,9 +46,9 @@ export const STYLES: Record<StyleKey, StylePreset> = {
   cg3d: {
     label: "3D动画",
     prompt:
-      "Premium romantic sci-fi 3D game cinematic: refined adult face and proportions, luminous skin, groomed hair, detailed fabric, cool shadows, warm key light, shallow depth of field.",
+      "Premium romantic 3D animated game cinematic: refined adult face and proportions, luminous skin, groomed hair, detailed fabric, cool shadows, warm key light, shallow depth of field.",
     still:
-      "Rendered as a polished Chinese otome science-fiction 3D game CG. Unless the character " +
+      "Rendered as a polished Chinese otome 3D animated game CG. Unless the character " +
       "description or identity reference explicitly specifies another adult identity, the " +
       "male lead is a youthful, strikingly handsome East Asian adult in his early-to-mid " +
       "twenties, with " +

@@ -273,6 +273,8 @@ export function openingShotPrompt(him: Character): string {
 
 /** Seconds per main-story shot. */
 export const SHOT_SECONDS = 5;
+/** Routine process is condensed into one longer clip instead of many pauses. */
+export const AUTO_SHOT_SECONDS = 12;
 /** The waking prologue is a doorway, never its own scene. */
 export const OPENING_SHOT_SECONDS = 5;
 /** 768P is noticeably sharper on faces, which is the whole point here. */

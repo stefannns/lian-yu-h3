@@ -30,6 +30,25 @@ export interface Choice {
    * new place, same person — and the room is allowed to be gone.
    */
   cut?: boolean;
+  /** Automatic process beats use a longer continuous clip; decisions stay short. */
+  pace?: "short" | "long";
+}
+
+/** One player-agency checkpoint planned before the run begins. */
+export interface PlannedDecision {
+  /** Stable semantic key recorded when this decision is resolved. */
+  key: string;
+  /** Early/middle/final activity phase in which this becomes due. */
+  phase: string;
+  /** What the player gets to determine, without preselecting an answer. */
+  description: string;
+  /** Whether examples help or the player's exact words matter. */
+  mode: "choices" | "free";
+}
+
+/** The first main shot also carries the run's decision agenda. */
+export interface IntentShot extends Choice {
+  decisionPlan: PlannedDecision[];
 }
 
 /** What the storyteller returns after reading a shot. */

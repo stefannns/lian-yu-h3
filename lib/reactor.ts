@@ -4,7 +4,13 @@ import { FastH3Model } from "@reactor-models/fast-h3";
 import type { ReactorMessage } from "@reactor-team/js-sdk";
 import { REACTOR_PROMPT_MAX_CHARS } from "./limits";
 
-const SAFE_CLIP_SECONDS = 5.167;
+const MIN_CLIP_SECONDS = 5.167;
+const MAX_CLIP_SECONDS = 14.375;
+
+function safeClipSeconds(requested: number): number {
+  if (!Number.isFinite(requested)) return MIN_CLIP_SECONDS;
+  return Math.max(MIN_CLIP_SECONDS, Math.min(MAX_CLIP_SECONDS, requested));
+}
 
 export interface ReactorClip {
   clipId: string;
@@ -365,16 +371,17 @@ export async function filmShot(args: {
     if (prompt.length > REACTOR_PROMPT_MAX_CHARS) {
       throw new Error("Reactor prompt exceeds " + REACTOR_PROMPT_MAX_CHARS + " characters.");
     }
+    const seconds = safeClipSeconds(args.duration);
     trace("enqueue_start", {
       beat: args.beat,
-      seconds: SAFE_CLIP_SECONDS,
+      seconds,
       source: startingFrame ? "starting_frame" : "previous_clip",
       promptChars: prompt.length,
     });
     const reply = await client.sendCommand("enqueue", {
       prompt,
       seed: args.seed + args.beat,
-      seconds: SAFE_CLIP_SECONDS,
+      seconds,
       metadata: JSON.stringify({ beat: args.beat }),
       ...(startingFrame ? { starting_frame: startingFrame } : {}),
       ...(args.continueFromClipId ? { continue_from_clip_id: args.continueFromClipId } : {}),

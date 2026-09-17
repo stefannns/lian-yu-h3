@@ -29,6 +29,7 @@ function loader(mocks = {}, globals = {}) {
       setTimeout: (callback) => { queueMicrotask(callback); return 1; },
       require(id) {
         if (Object.hasOwn(mocks, id)) return mocks[id];
+        if (id.startsWith("@/")) return load(id.slice(2) + ".ts");
         if (id.startsWith(".")) return load(path.relative(root, path.resolve(path.dirname(full), id + ".ts")));
         if (id === "react" || id === "react/jsx-runtime") return require(id);
         if (id.startsWith("node:")) return require(id);
@@ -48,7 +49,9 @@ const choices = [
 ];
 async function settle() { for (let i = 0; i < 40; i++) await Promise.resolve(); }
 
-function directorHarness({ failOn = [], freeOnly = true, loadPortrait, paintOverride, tellOverride, videoImpl } = {}) {
+function directorHarness({
+  failOn = [], freeOnly = true, loadPortrait, paintOverride, tellOverride, videoImpl, windowSetTimeout,
+} = {}) {
   const calls = { paints: [], videos: 0, videoArgs: [], intent: 0, typed: 0, reads: [], typedInputs: [] };
   const failures = new Set(failOn);
   const load = loader({
@@ -79,6 +82,11 @@ function directorHarness({ failOn = [], freeOnly = true, loadPortrait, paintOver
     "./story": {
       dress: (action) => action,
       imageKey: ({ frame, continuation }) => continuation ? "continue: " : frame ? "start frame: " : "",
+      ensureDecisionPlan: raw => Array.isArray(raw) && raw.length >= 3 ? raw : [
+        { key: "activity_direction", phase: "early", description: "Choose the activity direction.", mode: "choices" },
+        { key: "visual_finish", phase: "middle", description: "Choose the visible finish.", mode: "choices" },
+        { key: "personal_touch", phase: "final", description: "Choose the personal touch.", mode: "free" },
+      ],
       writeIntentShot: async () => { calls.intent++; return { label: "去海边", prompt: "seaside action", cut: true }; },
       writeTypedShot: async (args) => {
         calls.typed++;
@@ -99,7 +107,7 @@ function directorHarness({ failOn = [], freeOnly = true, loadPortrait, paintOver
       },
     },
   }, {
-    window: { setTimeout: () => 1, clearTimeout() {} },
+    window: { setTimeout: windowSetTimeout || (() => 1), clearTimeout() {} },
     fetch: async () => ({ ok: true, json: async () => ({ allowed: true }) }),
   });
   const { Director } = load("lib/engine.ts");
@@ -300,6 +308,41 @@ test("a transport failure retries only once", async () => {
   assert.equal(h.calls.requests.length, 2);
 });
 
+test("image retries share one overall deadline", async () => {
+  let now = 0;
+  let requests = 0;
+  class FakeDate extends Date {
+    static now() { return now; }
+  }
+  const imagegen = loader({
+    "google-auth-library": {
+      GoogleAuth: class {
+        async getClient() {
+          return { getAccessToken: async () => ({ token: "mock-token" }) };
+        }
+      },
+    },
+  }, {
+    Date: FakeDate,
+    process: { env: {
+      GOOGLE_CLOUD_PROJECT: "test-project", GOOGLE_CLOUD_LOCATION: "global",
+      IMAGE_PROVIDER: "vertex", VERTEX_IMAGE_MODEL: "gemini-3.1-flash-image",
+    } },
+    setTimeout: (callback, ms) => { now += ms; queueMicrotask(callback); },
+    fetch: async () => {
+      requests++;
+      now += 40_000;
+      return {
+        ok: false, status: 503, headers: { get: () => null },
+        text: async () => "simulated provider failure",
+      };
+    },
+  })("lib/imagegen.ts");
+  await assert.rejects(imagegen.generateImage(request), error => error.status === 504);
+  assert.equal(requests, 2);
+  assert.ok(now < 90_000);
+});
+
 test("Vertex authentication failure never falls back to an API key", async () => {
   const h = imageHarness([{ status: 200 }], { adcFails: true });
   await assert.rejects(h.generateImage(request), error => error.status === 401);
@@ -374,7 +417,7 @@ test("Reactor token route mints a server-side session-scoped FastH3 token", asyn
   assert.equal(requests[0].options.headers["Reactor-API-Key"], "test-reactor-key");
   const grant = JSON.parse(requests[0].options.body).authorization_details[0];
   assert.deepEqual(grant.resources.models.match, ["reactor/fast-h3"]);
-  assert.equal(grant.constraints.max_sessions, 4);
+  assert.equal(grant.constraints.max_sessions, 1);
   assert.doesNotMatch(JSON.stringify(response), /test-reactor-key/);
 });
 
@@ -420,11 +463,12 @@ test("Reactor FastH3 uses an uploaded first frame, then chains a second clip", a
     async disconnect() { this.status = "disconnected"; }
   }
   const windowMock = {
+    location: { pathname: "/" },
     setTimeout: (fn, ms) => setTimeout(fn, ms),
     clearTimeout: id => clearTimeout(id),
   };
   const reactor = loader({
-    "@reactor-team/js-sdk": { Reactor: FakeReactor },
+    "@reactor-models/fast-h3": { FastH3Model: FakeReactor },
     "./limits": { REACTOR_PROMPT_MAX_CHARS: 4000 },
   }, {
     window: windowMock, Blob, Uint8Array, atob, queueMicrotask,
@@ -440,20 +484,17 @@ test("Reactor FastH3 uses an uploaded first frame, then chains a second clip", a
   })("lib/reactor.ts");
 
   const first = await reactor.filmShot({
-    prompt: "x".repeat(4500), seed: 7, beat: 2, duration: 5, resolution: "768P",
+    prompt: "x".repeat(4000), seed: 7, beat: 2, duration: 5, resolution: "768P",
     fromFrame: "data:image/jpeg;base64,aGVsbG8=",
   });
   const second = await reactor.filmShot({
-    prompt: "continue", seed: 7, beat: 3, duration: 5, resolution: "768P",
+    prompt: "continue", seed: 7, beat: 3, duration: 12, resolution: "768P",
     continueFromClipId: first.clipId,
   });
 
   assert.equal(first.clipId, "clip-1");
   assert.equal(second.clipId, "clip-2");
-  assert.equal(instance.options.modelName, "reactor/fast-h3");
-  assert.equal(instance.options.readyTimeoutMs, 15_000);
-  assert.equal(instance.options.maxSessionAttempts, 1);
-  assert.equal(instance.options.maxSdpAttempts, 8);
+  assert.equal(instance.options.logLevel, "warn");
   assert.equal(instance.uploads.length, 1);
   assert.equal(instance.uploads[0].blob.type, "image/jpeg");
   const enqueues = instance.commands.filter(item => item.command === "enqueue").map(item => item.data);
@@ -464,6 +505,7 @@ test("Reactor FastH3 uses an uploaded first frame, then chains a second clip", a
   assert.equal(enqueues[0].continue_from_clip_id, undefined);
   assert.equal(enqueues[1].starting_frame, undefined);
   assert.equal(enqueues[1].continue_from_clip_id, "clip-1");
+  assert.equal(enqueues[1].seconds, 12);
   const media = await reactor.reactorMediaStream();
   assert.equal(media.tracks.map(track => track.name).join(","), "video,audio");
   await assert.rejects(
@@ -472,7 +514,7 @@ test("Reactor FastH3 uses an uploaded first frame, then chains a second clip", a
   );
 });
 
-test("every style preserves POV and no-text guards in the full Reactor prompt", () => {
+test("every style preserves compact POV, audio and single-subject guards", () => {
   const story = loader()("lib/story.ts");
   for (const style of ["anime", "cg3d", "real"]) {
     const prompt = story.imageKey({ frame: true, continuation: false }) + story.dress(
@@ -481,17 +523,19 @@ test("every style preserves POV and no-text guards in the full Reactor prompt", 
       false
     );
     assert.ok(prompt.length <= 4000, `${style} prompt was ${prompt.length} characters`);
-    assert.match(prompt, /^NO ON-SCREEN TEXT OR SUBTITLES/);
-    assert.match(prompt, /STRICT First-person POV/);
-    assert.match(prompt, /completely off-screen/);
-    assert.match(prompt, /Exactly one visible person/);
-    assert.match(prompt, /AUDIO TRACK ONLY/);
-    assert.match(prompt, /adult male Mandarin voice/);
-    assert.match(prompt, /never transcribe or visualize it/);
-    assert.match(prompt, /no female voice, no gibberish/);
-    assert.match(prompt, /ABSOLUTELY NO on-screen text/);
-    assert.match(prompt, /interface\.$/);
+    assert.match(prompt, /Direct first-person eye-level view from the unseen viewer/);
+    assert.match(prompt, /Audio: quiet natural ambience and soft instrumental music/);
+    assert.match(prompt, /young man is silent/);
+    assert.match(prompt, /handsome adult man is the sole visible person/);
+    assert.match(prompt, /facing the lens in a stable cinematic composition/);
   }
+});
+
+test("3D animation style contains no science-fiction direction", () => {
+  const { STYLES } = loader()("lib/styles.ts");
+  const cg3d = `${STYLES.cg3d.prompt} ${STYLES.cg3d.still}`;
+  assert.doesNotMatch(cg3d, /sci(?:ence[- ]fiction|[- ]fi)|futuristic|cyberpunk/i);
+  assert.match(cg3d, /romantic 3D animated game cinematic/i);
 });
 
 
@@ -552,9 +596,9 @@ test("video opening stops before H3 when its 16:9 first frame fails", async () =
 test("opening frame is strict first-person with only the male lead visible", () => {
   const character = loader()("lib/character.ts");
   const prompt = character.firstFramePrompt(him, "anime");
-  assert.match(prompt, /STRICT First-person POV/);
-  assert.match(prompt, /Exactly one visible person/);
-  assert.match(prompt, /viewer stays completely off-screen/);
+  assert.match(prompt, /Direct first-person eye-level view from the unseen viewer/);
+  assert.match(prompt, /handsome adult man is the sole visible person/);
+  assert.match(prompt, /facing the lens in a stable cinematic composition/);
   assert.doesNotMatch(prompt, /\b(?:she|her|woman|girl)\b/i);
 });
 
@@ -737,6 +781,11 @@ test("decision framework comes from any wish and still prompts are standalone", 
         return JSON.stringify({
           prompt: "A complete kitchen workspace where he presents two cake-making directions.",
           label: "在厨房决定蛋糕", cut: true,
+          decisionPlan: [
+            { key: "cake_kind", phase: "mixing", description: "Choose the cake flavour and base.", mode: "choices" },
+            { key: "cream_color", phase: "decorating", description: "Choose the cream colour and finish.", mode: "choices" },
+            { key: "cake_message", phase: "final", description: "Choose the personal message on the cake.", mode: "free" },
+          ],
         });
       },
     },
@@ -745,6 +794,10 @@ test("decision framework comes from any wish and still prompts are standalone", 
   const intent = await story.writeIntentShot("一起做蛋糕", "anime", him, true, true);
   assert.ok(intent);
   assert.equal(intent.cut, true);
+  assert.deepEqual(
+    Array.from(intent.decisionPlan, decision => decision.key),
+    ["cake_kind", "cream_color", "cake_message"]
+  );
   assert.match(calls[0].system, /first useful decision/);
   assert.match(calls[0].system, /no activity is the default template/);
   assert.match(calls[0].system, /INDEPENDENT STILL IMAGE/);
@@ -755,16 +808,74 @@ test("decision framework comes from any wish and still prompts are standalone", 
   const beat = await story.tellNext({
     frames: ["cake-still"], memory: "Flour is on his cheek.", attempted: "一起做蛋糕",
     previousLabels: [], beat: 2, style: "anime", him, wish: "一起做蛋糕",
-    scene: "They are in the kitchen.", decisions: [], still: true,
+    scene: "They are in the kitchen.", decisions: [], decisionPlan: intent.decisionPlan, still: true,
   });
   assert.deepEqual(Array.from(beat.choices, choice => choice.label), ["草莓奶油戚风", "巧克力慕斯"]);
   assert.match(calls[1].prompt, /ORIGINAL PLAYER WISH: 一起做蛋糕/);
   assert.match(calls[1].prompt, /RESOLVED DECISION KEYS: \[\]/);
+  assert.match(calls[1].prompt, /cream_color/);
   assert.match(calls[1].system, /must either resolve one meaningful decision or visibly advance/);
   assert.match(calls[1].system, /Apply the same gate to every kind of wish/);
   assert.match(calls[1].system, /emotional conversation/);
   assert.doesNotMatch(calls[1].system, /CLOSES THE DISTANCE/);
   assert.ok(beat.choices.every(choice => choice.prompt.includes("standalone scene illustration")));
+  assert.ok(beat.choices.every(choice => choice.pace === "short"));
+});
+
+test("decision plans are repaired to at least three usable checkpoints", () => {
+  const story = loader()("lib/story.ts");
+  const plan = story.ensureDecisionPlan([
+    { key: "frosting_color", phase: "decorating", description: "Choose the frosting colour.", mode: "choices" },
+    { key: "BAD KEY", phase: "final", description: "This invalid key is ignored.", mode: "free" },
+  ]);
+  assert.equal(plan.length, 3);
+  assert.equal(plan[0].key, "frosting_color");
+  assert.equal(new Set(Array.from(plan, item => item.key)).size, 3);
+  assert.ok(plan.every(item => item.description.length > 0));
+});
+
+test("after two automatic beats the next planned decision is mandatory", async () => {
+  let call = 0;
+  const story = loader({
+    "./llm": {
+      llmCall: async args => {
+        call++;
+        if (call === 1) {
+          return JSON.stringify({
+            scene: "The cake is cooling on a rack.", narration: "蛋糕已经放凉。", line: null,
+            memory: "The cake is ready to decorate.", moved: false,
+            interaction: "auto", decisionKey: null,
+            decisionReason: "Decorating can continue automatically.", choices: [],
+            continuation: { label: "抹好奶油", prompt: "He covers the cake with cream.", cut: false, pace: "long" },
+          });
+        }
+        assert.match(args.prompt, /NEXT PLANNED DECISION IS NOW MANDATORY: yes/);
+        return JSON.stringify({
+          scene: "The cake is cooling on a rack.", narration: "他把调色碗放到你面前。", line: "想要什么颜色？",
+          memory: "The cake is ready for a frosting colour.", moved: false,
+          interaction: "choices", decisionKey: "cream_color",
+          decisionReason: "The frosting colour visibly defines the finished cake.",
+          choices: [
+            { label: "雾粉色", prompt: "He tints the frosting a soft dusty pink.", cut: false, pace: "short" },
+            { label: "奶油白", prompt: "He keeps the frosting warm ivory white.", cut: false, pace: "short" },
+          ], continuation: null,
+        });
+      },
+    },
+  })("lib/story.ts");
+  const decisionPlan = [
+    { key: "cake_kind", phase: "early", description: "Choose the cake flavour.", mode: "choices" },
+    { key: "cream_color", phase: "middle", description: "Choose the frosting colour.", mode: "choices" },
+    { key: "cake_message", phase: "final", description: "Choose a personal message.", mode: "free" },
+  ];
+  const beat = await story.tellNext({
+    frames: ["cake-still"], memory: "The cake baked and cooled.", attempted: "蛋糕放凉了",
+    previousLabels: [], beat: 5, style: "anime", him, wish: "一起做蛋糕", still: true,
+    decisionPlan, resolvedDecisionKeys: ["cake_kind"], automaticBeats: 2, playerLed: false,
+  });
+  assert.equal(call, 2);
+  assert.equal(beat.interaction, "choices");
+  assert.equal(beat.decisionKey, "cream_color");
 });
 
 test("resolved semantic decisions are rejected even when the labels are new", async () => {
@@ -921,8 +1032,9 @@ test("storyteller can auto-advance an unimportant beat without offering cards", 
   assert.equal(beat.freeOnly, false);
   assert.equal(beat.choices.length, 0);
   assert.equal(beat.continuation.label, "送蛋糕进烤箱");
+  assert.equal(beat.continuation.pace, "long");
   assert.equal(beat.line, null);
-  assert.match(calls[0].system, /Never manufacture a stop/);
+  assert.match(calls[0].system, /Never add decisions outside the plan/);
   assert.match(calls[0].system, /process steps/);
   assert.match(calls[0].prompt, /STORY-LED BEATS SINCE HER LAST INPUT: 1/);
   assert.equal(calls[0].model, "gemini-3.5-flash-lite");
@@ -986,6 +1098,27 @@ test("director executes story-led continuation and stops at the next free questi
   assert.equal(h.calls.paints.length, 3);
   assert.match(h.calls.paints[2].prompt, /finished cake after baking/);
   assert.equal(h.calls.reads.at(-1).automaticBeats, 1);
+});
+
+test("a never-settling third still returns to retry instead of freezing", async () => {
+  const h = directorHarness({
+    freeOnly: false,
+    paintOverride: (_args, number) => number === 3
+      ? new Promise(() => undefined)
+      : `frame-${number}`,
+    windowSetTimeout: (callback, ms) => {
+      if (ms >= 85_000) queueMicrotask(callback);
+      return 1;
+    },
+  });
+  await reachChoices(h);
+  h.director.choose(0);
+  await settle();
+  const state = h.director.getSnapshot();
+  assert.equal(state.phase, "choosing");
+  assert.equal(state.canRetryScene, true);
+  assert.equal(state.choices.length, 2);
+  assert.match(state.notice, /重试这一幕/);
 });
 
 test("filming state visibly explains that the next still is generating", () => {

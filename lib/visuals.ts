@@ -8,8 +8,19 @@
 async function cropTo(source: string, width: number, height: number): Promise<string> {
   const image = await new Promise<HTMLImageElement>((resolve, reject) => {
     const element = new Image();
-    element.onload = () => resolve(element);
-    element.onerror = () => reject(new Error("still failed to decode"));
+    const timer = window.setTimeout(() => {
+      element.onload = null;
+      element.onerror = null;
+      reject(new Error("still image decode timed out"));
+    }, 10_000);
+    element.onload = () => {
+      window.clearTimeout(timer);
+      resolve(element);
+    };
+    element.onerror = () => {
+      window.clearTimeout(timer);
+      reject(new Error("still failed to decode"));
+    };
     element.crossOrigin = "anonymous";
     element.src = source;
   });
@@ -47,17 +58,30 @@ export async function paintFrame(args: {
   references?: string[];
 }): Promise<string> {
   const references = (args.references ?? []).filter(Boolean);
-  const response = await fetch("/api/image", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      prompt: args.prompt,
-      width: args.width,
-      height: args.height,
-      seed: args.seed,
-      ...(references.length > 0 ? { referenceImages: references.slice(0, 8) } : {}),
-    }),
-  });
+  let response: Response;
+  try {
+    response = await fetch("/api/image", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        prompt: args.prompt,
+        width: args.width,
+        height: args.height,
+        seed: args.seed,
+        ...(references.length > 0 ? { referenceImages: references.slice(0, 8) } : {}),
+      }),
+      // Slightly longer than the server's complete queue + retry budget.
+      signal: AbortSignal.timeout(80_000),
+    });
+  } catch (cause) {
+    throw new Error(
+      cause instanceof Error && cause.name === "TimeoutError"
+        ? "image request timed out"
+        : cause instanceof Error
+          ? cause.message
+          : "image request failed"
+    );
+  }
   if (!response.ok) {
     const detail = await response.json().catch(() => ({})) as { error?: string };
     throw new Error(detail.error ?? `image API responded ${response.status}`);

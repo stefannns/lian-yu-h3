@@ -24,8 +24,9 @@
 
 import { discardReactorClip, filmShot, resetReactorSession } from "./reactor";
 import { loadPortrait, paintFrame } from "./visuals";
-import { dress, imageKey, tellNext, writeIntentShot, writeTypedShot } from "./story";
+import { dress, ensureDecisionPlan, imageKey, tellNext, writeIntentShot, writeTypedShot } from "./story";
 import {
+  AUTO_SHOT_SECONDS,
   OPENING_SHOT_SECONDS,
   RESOLUTION,
   SHOT_SECONDS,
@@ -34,7 +35,7 @@ import {
   type Character,
 } from "./character";
 import { DEFAULT_STYLE, STYLES, type StyleKey } from "./styles";
-import type { Beat, Choice, Phase, Shot } from "./types";
+import type { Beat, Choice, Phase, PlannedDecision, Shot } from "./types";
 
 /** Only an explicit wish to remain in bed earns a second bedroom beat. */
 function isStayInBedWish(wish: string): boolean {
@@ -111,6 +112,7 @@ interface SceneRequest {
   kind: Shot["kind"];
   attempted: string;
   decisionKey?: string;
+  duration?: number;
   fromFrame?: string;
   continueFromPrevious?: boolean;
 }
@@ -129,6 +131,8 @@ const NARRATION_DWELL_MS = 2_600;
  * window the storyteller's read has to land in, exactly as playback is.
  */
 const STILL_DWELL_MS = 5_000;
+/** Last-resort guard if the browser transport or decoder fails to settle. */
+const SCENE_GENERATION_WATCHDOG_MS = 85_000;
 
 const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms));
 
@@ -148,6 +152,8 @@ export class Director {
   private memory = "";
   private wish = "";
   private decisions: string[] = [];
+  /** Ordered agency checkpoints written before the first main scene. */
+  private decisionPlan: PlannedDecision[] = [];
   /** Semantic decision dimensions already answered, independent of wording. */
   private resolvedDecisionKeys: string[] = [];
   /** Story-led beats since the player's last choice or free answer. */
@@ -377,6 +383,7 @@ export class Director {
       this.videoOff
     );
     if (intakeToken !== this.token) return;
+    this.decisionPlan = written?.decisionPlan ?? ensureDecisionPlan(null);
 
     // Only an accepted, submitted wish may start paid visual generation.
     // This intentionally trades a little startup latency for predictable cost.
@@ -421,6 +428,7 @@ export class Director {
       ),
       spokenLine: null,
       cut: mustLeaveOpening,
+      pace: "short" as const,
     };
     this.cannedRequest = {
       prompt: wishShot.prompt,
@@ -430,6 +438,7 @@ export class Director {
       action: wish.slice(0, 40),
       kind: "intent",
       attempted: wish,
+      duration: wishShot.pace === "long" ? AUTO_SHOT_SECONDS : SHOT_SECONDS,
       // A new location gets its own Nano-composed 16:9 starting frame.
       // Staying in this scene chains from Reactor's retained final frame.
       continueFromPrevious: !wishShot.cut,
@@ -466,6 +475,7 @@ export class Director {
       kind: "choice",
       attempted: choice.label,
       decisionKey,
+      duration: choice.pace === "long" ? AUTO_SHOT_SECONDS : SHOT_SECONDS,
       // Cuts get a fresh scene frame; continuous action uses the previous
       // Reactor clip directly, without re-uploading a sampled JPEG.
       continueFromPrevious: !choice.cut,
@@ -522,6 +532,7 @@ export class Director {
     const shot = written ?? {
       label: text,
       spokenLine: null,
+      pace: "short" as const,
       prompt: dress(
         `The young man — ${him.descriptor} — responds as the viewer does this: ${text}. ` +
           `Advance the chosen activity with a complete view of the current setting: ${this.scene}.`,
@@ -536,6 +547,7 @@ export class Director {
       kind: "typed",
       attempted: text,
       decisionKey,
+      duration: shot.pace === "long" ? AUTO_SHOT_SECONDS : SHOT_SECONDS,
       continueFromPrevious: !shot.cut,
     });
   }
@@ -571,6 +583,7 @@ export class Director {
     this.memory = "";
     this.wish = "";
     this.decisions = [];
+    this.decisionPlan = [];
     this.resolvedDecisionKeys = [];
     this.automaticBeats = 0;
     this.scene = "";
@@ -659,7 +672,9 @@ export class Director {
         }) + args.prompt,
         seed: this.seed,
         beat,
-        duration: args.kind === "opening" ? OPENING_SHOT_SECONDS : SHOT_SECONDS,
+        duration: args.kind === "opening"
+          ? OPENING_SHOT_SECONDS
+          : args.duration ?? (args.kind === "auto" ? AUTO_SHOT_SECONDS : SHOT_SECONDS),
         resolution: RESOLUTION,
         fromFrame: startFrame,
         continueFromClipId,
@@ -762,7 +777,14 @@ export class Director {
     token: number,
     args: SceneRequest
   ) {
-    const prepared = await this.generate(token, args);
+    let watchdog: number | null = null;
+    const prepared = await Promise.race([
+      this.generate(token, args),
+      new Promise<null>((resolve) => {
+        watchdog = window.setTimeout(() => resolve(null), SCENE_GENERATION_WATCHDOG_MS);
+      }),
+    ]);
+    if (watchdog !== null) window.clearTimeout(watchdog);
     if (token !== this.token) return;
     if (!prepared) {
       // Empty choices are valid for free-input and story-led scenes. On a
@@ -883,6 +905,7 @@ export class Director {
         frames: prepared.strip,
         wish: this.wish,
         decisions: this.decisions,
+        decisionPlan: this.decisionPlan,
         resolvedDecisionKeys: this.resolvedDecisionKeys,
         scene: this.scene,
         still: prepared.shot.still,
@@ -996,6 +1019,7 @@ export class Director {
         action: next.label,
         kind: "auto",
         attempted: next.label,
+        duration: next.pace === "short" ? SHOT_SECONDS : AUTO_SHOT_SECONDS,
         continueFromPrevious: !next.cut,
       });
       return;

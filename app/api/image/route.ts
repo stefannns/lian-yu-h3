@@ -82,9 +82,10 @@ export async function POST(request: NextRequest) {
     const headers = status === 429
       ? { "Retry-After": String(Math.ceil((retryAfterMs ?? 30_000) / 1_000)) }
       : undefined;
+    const responseStatus = status === 429 ? 429 : status === 504 ? 504 : 502;
     return NextResponse.json(
       { error: imageFailureMessage(cause), upstreamStatus: status },
-      { status: status === 429 ? 429 : 502, headers }
+      { status: responseStatus, headers }
     );
   }
 }

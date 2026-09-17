@@ -4,7 +4,7 @@ import path from "node:path";
 import { openingShotPrompt, type Character } from "@/lib/character";
 import { dress, tellNext, writeIntentShot } from "@/lib/story";
 import { DEFAULT_STYLE, isStyleKey } from "@/lib/styles";
-import type { Beat, Choice } from "@/lib/types";
+import type { Beat, IntentShot } from "@/lib/types";
 import { callGeminiText } from "@/lib/server-llm";
 
 /**
@@ -99,7 +99,7 @@ export async function POST(request: NextRequest) {
   });
 
   // Beat 1 — the wish becomes a shot.
-  const intent: Choice | null = await writeIntentShot(wish, style, him, false, false, callGeminiText);
+  const intent: IntentShot | null = await writeIntentShot(wish, style, him, false, false, callGeminiText);
   if (!intent) {
     return NextResponse.json({ error: "the wish writer failed" }, { status: 502 });
   }
@@ -132,6 +132,7 @@ export async function POST(request: NextRequest) {
       wish,
       scene,
       decisions,
+      decisionPlan: intent.decisionPlan,
       resolvedDecisionKeys,
       automaticBeats,
       playerLed,
@@ -200,7 +201,13 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  return NextResponse.json({ him: { name: him.name, descriptor: him.descriptor }, style, wish, script });
+  return NextResponse.json({
+    him: { name: him.name, descriptor: him.descriptor },
+    style,
+    wish,
+    decisionPlan: intent.decisionPlan,
+    script,
+  });
 }
 
 export const runtime = "nodejs";
