@@ -49,6 +49,10 @@ import type { Beat, Choice } from "./types";
 
 /** Story planning needs stronger instruction-following than moderation/routing. */
 const STORY_MODEL = "gemini-3.5-flash-lite";
+/** Schema retries share one deadline so a bad reply cannot stack long waits. */
+const STORY_READ_BUDGET_MS = 45_000;
+const STORY_ATTEMPT_TIMEOUT_MS = 30_000;
+const MIN_STORY_ATTEMPT_MS = 5_000;
 
 /**
  * Every prompt that reaches h3 goes through here. Camera, sound and style
@@ -330,6 +334,7 @@ export async function tellNext(args: {
   spokenLine?: string | null;
   call?: LlmCaller;
 }): Promise<Beat | null> {
+  const deadline = Date.now() + STORY_READ_BUDGET_MS;
   const prompt =
     `ORIGINAL PLAYER WISH: ${args.wish || "Follow the player's current activity."}\n` +
     `ACCEPTED PLAYER ACTIONS: ${JSON.stringify(args.decisions ?? [])}\n` +
@@ -349,6 +354,11 @@ export async function tellNext(args: {
       : "Read the supplied chronological frames, apply the decision gate, and either advance them or stop at the next due decision.");
 
   for (let attempt = 0; attempt < 3; attempt++) {
+    const remainingMs = deadline - Date.now();
+    if (remainingMs < MIN_STORY_ATTEMPT_MS) {
+      console.warn("[tellNext] retry budget exhausted");
+      break;
+    }
     try {
       const output = await (args.call ?? llmCall)({
         system: tellSystem(args.him, args.still),
@@ -364,6 +374,7 @@ export async function tellNext(args: {
         temperature: 0.85,
         json: true,
         model: STORY_MODEL,
+        timeoutMs: Math.min(STORY_ATTEMPT_TIMEOUT_MS, remainingMs),
       });
       const data = parseJsonObjectReply(output);
       const choices = readChoices(data.choices, args.style, args.still);

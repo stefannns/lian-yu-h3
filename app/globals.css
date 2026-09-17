@@ -459,6 +459,15 @@ button {
   margin: 0 0 20px;
 }
 
+.writing-help {
+  margin: 12px 0 0;
+  max-width: 420px;
+  color: rgba(253, 246, 238, 0.7);
+  font-size: 12px;
+  line-height: 1.6;
+  text-align: center;
+}
+
 .breath {
   width: 46px;
   height: 1px;

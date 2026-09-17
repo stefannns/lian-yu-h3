@@ -14,6 +14,8 @@ export interface LlmArgs {
   json?: boolean;
   /** Override the server's default model. */
   model?: string;
+  /** Bound this request. Story retries also share an overall deadline. */
+  timeoutMs?: number;
 }
 
 export type LlmCaller = (args: LlmArgs) => Promise<string>;
@@ -42,10 +44,16 @@ function endpoint(): string {
 export async function llmCall(args: LlmArgs): Promise<string> {
   let response: Response;
   try {
+    const requestedTimeout = Number.isFinite(args.timeoutMs)
+      ? Math.max(5_000, Math.min(45_000, Math.round(args.timeoutMs!)))
+      : 30_000;
     response = await fetch(endpoint(), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(args),
+      // The server owns the upstream deadline. This slightly longer browser
+      // deadline prevents a lost HTTP response from leaving the scene stuck.
+      signal: AbortSignal.timeout(requestedTimeout + 2_500),
     });
   } catch (cause) {
     // The server may already have completed a billed request. Retrying from

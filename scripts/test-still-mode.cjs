@@ -1009,3 +1009,25 @@ test("filming state visibly explains that the next still is generating", () => {
   assert.match(html, /选择蛋糕口味/);
   assert.match(html, /完成后会自动继续/);
 });
+
+test("writing state visibly explains the bounded Gemini wait", () => {
+  const React = require("react");
+  const { renderToStaticMarkup } = require("react-dom/server");
+  const h = directorHarness();
+  const { Stage } = loader({
+    "@/lib/reactor": {
+      reactorMediaStream: async () => { throw new Error("Unexpected Reactor stream"); },
+      playReactorClip: async () => { throw new Error("Unexpected Reactor playback"); },
+    },
+  })("components/stage.tsx");
+  const html = renderToStaticMarkup(React.createElement(Stage, {
+    state: { ...h.director.getSnapshot(), phase: "writing", currentShot: {
+      beat: 2, action: "继续", kind: "auto", prompt: "continue", still: true,
+      videoUrl: "", rawUrl: "", thumb: "frame",
+    }, freezeFrame: "frame" },
+    onClipEnded() {}, onChoose() {}, onTyped() {}, onRetry() {},
+  }));
+  assert.match(html, /正在整理接下来的剧情/);
+  assert.match(html, /超时后可重试/);
+  assert.match(html, /不会重新生成这一幕/);
+});

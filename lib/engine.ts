@@ -877,26 +877,31 @@ export class Director {
   private async read(token: number, prepared: Prepared) {
     const him = this.him;
     if (!him) return;
-    const beat = await tellNext({
-      frames: prepared.strip,
-      wish: this.wish,
-      decisions: this.decisions,
-      resolvedDecisionKeys: this.resolvedDecisionKeys,
-      scene: this.scene,
-      still: prepared.shot.still,
-      opening: prepared.shot.kind === "opening",
-      automaticBeats: this.automaticBeats,
-      playerLed:
-        prepared.shot.kind === "choice" ||
-        prepared.shot.kind === "typed",
-      memory: this.memory,
-      attempted: prepared.attempted,
-      spokenLine: prepared.shot.spokenLine,
-      previousLabels: this.offered,
-      beat: prepared.shot.beat,
-      style: this.style,
-      him,
-    });
+    let beat: Beat | null = null;
+    try {
+      beat = await tellNext({
+        frames: prepared.strip,
+        wish: this.wish,
+        decisions: this.decisions,
+        resolvedDecisionKeys: this.resolvedDecisionKeys,
+        scene: this.scene,
+        still: prepared.shot.still,
+        opening: prepared.shot.kind === "opening",
+        automaticBeats: this.automaticBeats,
+        playerLed:
+          prepared.shot.kind === "choice" ||
+          prepared.shot.kind === "typed",
+        memory: this.memory,
+        attempted: prepared.attempted,
+        spokenLine: prepared.shot.spokenLine,
+        previousLabels: this.offered,
+        beat: prepared.shot.beat,
+        style: this.style,
+        him,
+      });
+    } catch (cause) {
+      console.error("[read] storyteller failed unexpectedly:", cause);
+    }
     if (token !== this.token || this.state.beat !== prepared.shot.beat) return;
     if (!beat) {
       // Keep the generated image; retry narration without paying for it again.

@@ -366,11 +366,13 @@ export function Stage({
       </Fade>
 
       <Fade show={state.phase === "writing"}>
-        <div className="shutter">
+        <div className="shutter" role="status">
           <div className="shutter-card">
+            <p className="shutter-label">正在整理接下来的剧情</p>
             <div className="breath">
               <i />
             </div>
+            <p className="writing-help">完成后会自动继续；超时后可重试，不会重新生成这一幕</p>
           </div>
         </div>
       </Fade>

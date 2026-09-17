@@ -16,7 +16,9 @@ import { generateGemini, type GeminiPart } from "@/lib/gemini";
  */
 
 const DEFAULT_MODEL = process.env.GEMINI_MODEL || "gemini-3.5-flash-lite";
-const TIMEOUT_MS = 30_000;
+const DEFAULT_TIMEOUT_MS = 30_000;
+const MIN_TIMEOUT_MS = 5_000;
+const MAX_TIMEOUT_MS = 45_000;
 
 const MAX_PROMPT_CHARS = 24_000;
 const MAX_SYSTEM_CHARS = 16_000;
@@ -35,6 +37,8 @@ interface Body {
   /** Ask Gemini for strict JSON rather than scraping it out of prose. */
   json?: unknown;
   model?: unknown;
+  /** Per-attempt deadline supplied by the bounded story retry loop. */
+  timeoutMs?: unknown;
 }
 
 /** Split a `data:image/jpeg;base64,...` URI into Gemini's inline_data shape. */
@@ -83,6 +87,10 @@ export async function POST(request: NextRequest) {
     typeof body.model === "string" && /^[\w.-]{1,64}$/.test(body.model)
       ? body.model
       : DEFAULT_MODEL;
+  const timeoutMs =
+    typeof body.timeoutMs === "number" && Number.isFinite(body.timeoutMs)
+      ? Math.max(MIN_TIMEOUT_MS, Math.min(MAX_TIMEOUT_MS, Math.round(body.timeoutMs)))
+      : DEFAULT_TIMEOUT_MS;
   const usesThinkingLevel = /^gemini-3\.(?:6|7|8)-flash$/.test(model);
 
   try {
@@ -90,7 +98,7 @@ export async function POST(request: NextRequest) {
       model,
       system,
       parts,
-      timeoutMs: TIMEOUT_MS,
+      timeoutMs,
       generationConfig: {
         maxOutputTokens: maxTokens,
         ...(body.json === true ? { responseMimeType: "application/json" } : {}),

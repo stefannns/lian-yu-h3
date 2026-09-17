@@ -2,7 +2,9 @@ import { generateGemini, type GeminiPart } from "./gemini";
 import type { LlmArgs } from "./llm";
 
 const DEFAULT_MODEL = process.env.GEMINI_MODEL || "gemini-3.5-flash-lite";
-const TIMEOUT_MS = 30_000;
+const DEFAULT_TIMEOUT_MS = 30_000;
+const MIN_TIMEOUT_MS = 5_000;
+const MAX_TIMEOUT_MS = 45_000;
 const MAX_PROMPT_CHARS = 24_000;
 const MAX_SYSTEM_CHARS = 16_000;
 const MAX_OUTPUT_TOKENS = 2_000;
@@ -49,6 +51,9 @@ export async function callGeminiText(args: LlmArgs): Promise<string> {
     : 0.7;
   const model = args.model && /^[\w.-]{1,64}$/.test(args.model) ? args.model : DEFAULT_MODEL;
   const usesThinkingLevel = /^gemini-3\.(?:6|7|8)-flash$/.test(model);
+  const timeoutMs = Number.isFinite(args.timeoutMs)
+    ? Math.max(MIN_TIMEOUT_MS, Math.min(MAX_TIMEOUT_MS, Math.round(args.timeoutMs!)))
+    : DEFAULT_TIMEOUT_MS;
 
   let response: Response;
   try {
@@ -56,7 +61,7 @@ export async function callGeminiText(args: LlmArgs): Promise<string> {
       model,
       system,
       parts,
-      timeoutMs: TIMEOUT_MS,
+      timeoutMs,
       generationConfig: {
         maxOutputTokens: maxTokens,
         ...(args.json ? { responseMimeType: "application/json" } : {}),
