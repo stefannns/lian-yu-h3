@@ -86,7 +86,7 @@ export function dress(
   const tag = SHOT_TAGS ? `${explicitTag?.[1] ?? DEFAULT_SHOT_TAG} ` : "";
   const sound = soundPrompt(spokenLine);
   const dressed =
-    `${tag}${POV_LEAD} ${sceneAction} ${sound} ${STYLES[style].prompt} ${POV_GUARD}`;
+    `${tag}${POV_LEAD} ${sceneAction} ${sound} no subtitles. ${STYLES[style].prompt} ${POV_GUARD}`;
   if (dressed.length <= PROMPT_WARN_CHARS) return dressed;
 
   // Over budget. The clauses are fixed and each one is load-bearing, so the
