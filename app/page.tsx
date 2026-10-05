@@ -1,6 +1,8 @@
 "use client";
 
-import { useCallback, useRef, useState, useSyncExternalStore } from "react";
+import { t, setLanguage, type Language } from "@/lib/i18n";
+
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Creator } from "@/components/creator";
 import { Intake } from "@/components/intake";
 import { Stage } from "@/components/stage";
@@ -12,6 +14,22 @@ export default function Page() {
   const ref = useRef<Director | null>(null);
   if (!ref.current) ref.current = new Director();
   const director = ref.current;
+  const [language, updateLanguage] = useState<Language>("zh");
+  useEffect(() => {
+    let saved: Language = "zh";
+    try { saved = localStorage.getItem("lianyu-language") === "en" ? "en" : "zh"; } catch {}
+    setLanguage(saved);
+    updateLanguage(saved);
+    document.documentElement.lang = saved === "en" ? "en" : "zh-CN";
+    document.title = saved === "en" ? "When I Wake, You're Here" : "醒来的时候，他在";
+  }, []);
+  const chooseLanguage = (value: Language) => {
+    setLanguage(value);
+    updateLanguage(value);
+    try { localStorage.setItem("lianyu-language", value); } catch {}
+    document.documentElement.lang = value === "en" ? "en" : "zh-CN";
+    document.title = value === "en" ? "When I Wake, You're Here" : "醒来的时候，他在";
+  };
 
   const state = useSyncExternalStore(
     director.subscribe,
@@ -57,16 +75,14 @@ export default function Page() {
     return (
       <div className="stop">
         <div>
-          <h2>今天到这里了</h2>
-          <p>{state.error}</p>
+          <h2>{t("今天到这里了")}</h2>
+          <p>{t(state.error ?? "")}</p>
           <button
             className="btn"
             onClick={() => {
               director.reset();
             }}
-          >
-            重 新 醒 来
-          </button>
+          >{t("重 新 醒 来")}</button>
         </div>
       </div>
     );
@@ -78,6 +94,10 @@ export default function Page() {
   if (state.phase === "intake" || state.currentShot === null) {
     return (
       <>
+        <div className="language-switch" role="group" aria-label="Language">
+          <button type="button" aria-pressed={language === "zh"} disabled={creating || state.phase !== "intake"} onClick={() => chooseLanguage("zh")}>中文</button>
+          <button type="button" aria-pressed={language === "en"} disabled={creating || state.phase !== "intake"} onClick={() => chooseLanguage("en")}>English</button>
+        </div>
         {creating && (
           <Creator
             style={state.style}

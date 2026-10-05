@@ -1094,3 +1094,12 @@ button {
   line-height: 1.7;
   color: rgba(106, 90, 82, 0.7);
 }
+
+/* Language is chosen before starting a run; switching never generates media. */
+.language-switch { position: absolute; top: 24px; left: 24px; z-index: 20; display: flex; gap: 4px; padding: 4px; border: 1px solid #b5968170; border-radius: 24px; background: #f5eadd; color: #45352e; }
+.language-switch button { font: inherit; font-size: 13px; border: 0; border-radius: 18px; padding: 7px 12px; background: transparent; color: inherit; cursor: pointer; }
+.language-switch button[aria-pressed="true"] { background: #dfc6b5; }
+.language-switch button:disabled { opacity: .5; cursor: default; }
+html[lang="en"] .intake h1 { letter-spacing: -.025em; font-size: clamp(32px, 5vw, 62px); line-height: 1.15; }
+html[lang="en"] .intake-eyebrow, html[lang="en"] .styles-label, html[lang="en"] .btn { letter-spacing: .06em; }
+@media (max-width: 600px) { .language-switch { top: 14px; left: 12px; } .language-switch button { padding: 5px 8px; } }
