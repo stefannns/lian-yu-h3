@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { mkdir, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
-import { portraitPrompt, restylePrompt, type Character } from "@/lib/character";
+import { DEFAULT_MALE_APPEARANCE, portraitPrompt, restylePrompt, type Character } from "@/lib/character";
 import { generateGemini, type GeminiPart } from "@/lib/gemini";
 import { parseJsonObjectReply } from "@/lib/json";
 import { ImageGenError, generateImage, imageFailureMessage, toDataUri } from "@/lib/imagegen";
@@ -55,7 +55,7 @@ Return ONLY JSON in exactly this shape:
 {"name": string, "descriptor": string, "temperament": string}
 
 - name: 中文，两到三个字，好听，像小说里的男主。没有姓氏也可以。
-- descriptor: ENGLISH, one phrase, appearance ONLY, written verbatim into every shot prompt of the run. Write it as a NOUN PHRASE that can sit inside a sentence — start with the build or a feature, never with "A young man..." (the sentence already says that), and never end with an art note like "with beige as the dominant colour" or "dominated by a warm palette", which describes the whole picture rather than him. Good: "tall and lean, with messy dark hair, in an oversized beige cable-knit sweater". Concrete and visual: build, hair, and the one or two garments that make his silhouette. Name ONE dominant colour. Never describe his face in detail — faces do not survive a video model, and his face is carried by a reference image; colour and silhouette are what survive. Preserve an adult age or ethnicity when the player's idea explicitly specifies one; otherwise do not invent either. No personality, no backstory, no camera or lighting direction.
+- descriptor: ENGLISH, one phrase, appearance ONLY, written verbatim into every shot prompt of the run. Write it as a NOUN PHRASE that can sit inside a sentence — start with the build or a feature, never with "A young man..." (the sentence already says that), and never end with an art note like "with beige as the dominant colour" or "dominated by a warm palette", which describes the whole picture rather than him. Good: "tall and lean, with messy dark hair, in an oversized beige cable-knit sweater". Concrete and visual: build, hair, and the one or two garments that make his silhouette. Name ONE dominant colour. Include a compact facial-structure phrase and preserve any explicit facial traits. Use only the selected style's appearance defaults for unspecified traits. Keep build and proportion cues concise so they persist in later shots; the generated reference image carries the exact identity. Preserve an adult age or ethnicity when the player's idea explicitly specifies one; otherwise do not invent either. No personality, no backstory, no camera or lighting direction.
 - temperament: ENGLISH, one or two sentences, how he behaves toward her. This steers the writing only, never the picture. Warm, specific, and playable — say what he DOES, not what he is like.
 
 Keep him tender and age-appropriate for a warm romance. Nothing explicit.`;
@@ -127,6 +127,7 @@ function dataUriToBuffer(uri: string): Buffer | null {
 
 export async function POST(request: NextRequest) {
   let body: {
+    language?: unknown;
     mode?: unknown;
     name?: unknown;
     idea?: unknown;
@@ -140,6 +141,11 @@ export async function POST(request: NextRequest) {
   }
 
   const mode = body.mode === "upload" ? "upload" : "write";
+  const english = body.language === "en";
+  const localizeName = (system: string) => english ? system.replace(/- name: [^\n]+/g, "- name: A natural English given name written in Latin letters, such as Ethan or Julian, not Chinese pinyin. Preserve a player-supplied name.") : system;
+  const languageRule = english
+    ? "\nLANGUAGE OVERRIDE: Generate a short natural English name unless the player supplies a name. Descriptor and temperament remain English."
+    : "";
   const givenName = str(body.name, MAX_NAME_CHARS);
   // The look he is first painted in. Every other look is later edited from
   // this same picture, so this one call decides what he actually looks like.
@@ -162,7 +168,7 @@ export async function POST(request: NextRequest) {
       // text half of the pipeline cannot see the image.
       source = image;
       written = await gemini({
-        system: READ_SYSTEM,
+        system: localizeName(READ_SYSTEM) + languageRule,
         prompt: "Describe the man in this image as the 男主 of the game.",
         image,
       });
@@ -174,7 +180,7 @@ export async function POST(request: NextRequest) {
       written = await gemini({
         // The idea is untrusted player text, so it is handed over as data
         // rather than pasted into the instructions.
-        system: WRITE_SYSTEM,
+        system: localizeName(WRITE_SYSTEM) + "\n" + (style === "real" ? DEFAULT_MALE_APPEARANCE : "Preserve the player appearance requests. Do not add sculpted facial planes, prominent cheekbones, a heavy jaw, broad shoulders or small-head proportions by default; the selected animation preset supplies the visual design.") + languageRule,
         prompt: JSON.stringify({ player_idea: idea }),
       });
       const descriptor = str(written.descriptor, 300);
@@ -196,7 +202,7 @@ export async function POST(request: NextRequest) {
     const him: Character = {
       id: randomUUID().slice(0, 8),
       // A name the player typed always wins over one the model invented.
-      name: givenName || str(written.name, MAX_NAME_CHARS) || "他",
+      name: givenName || (english && /[\u3400-\u9fff]/.test(str(written.name, MAX_NAME_CHARS)) ? "Ethan" : str(written.name, MAX_NAME_CHARS)) || (english ? "Ethan" : "他"),
       descriptor: str(written.descriptor, 300),
       temperament: str(written.temperament, 400),
       fromUpload: mode === "upload",
