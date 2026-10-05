@@ -1,5 +1,7 @@
 "use client";
 
+import { t } from "@/lib/i18n";
+
 import { useEffect, useRef, useState } from "react";
 import type { Character } from "@/lib/character";
 import { primeReactorAudio } from "@/lib/reactor";
@@ -68,34 +70,26 @@ export function Intake({
         }}
         title={
           videoOff
-            ? "每一幕生成一张静帧，不调用视频服务"
-            : "每一幕约五秒视频，由 H3 按需生成"
+            ? t("每一幕生成一张静帧，不调用视频服务")
+            : t("主要场景约 10–12 秒视频，开场较短")
         }
       >
         <span className="mode-dot" aria-hidden />
-        {videoOff ? "无视频模式" : "视频模式 · 按幕生成"}
+        {videoOff ? t("无视频模式") : t("视频模式 · 按幕生成")}
       </button>
 
       <div className="intake-inner">
-        <p className="intake-eyebrow">还没睁开眼</p>
+        <p className="intake-eyebrow">{t("还没睁开眼")}</p>
         {/* He is never named here. On this screen he is only "他" — the player
             has not opened their eyes yet, and a name is something you are
             told by someone, not something you start the day already holding.
             His name appears the first time he speaks. */}
-        <h1>
-          今天，你想和他
-          <br />
-          做点什么？
-        </h1>
-        <p className="sub">
-          随便写。一句话，一个念头，或者只是一种心情。
-          <br />
-          你写下的，就是这一天真正会发生的事。
-        </p>
+        <h1>{t("今天，你想和他")}<br />{t("做点什么？")}</h1>
+        <p className="sub">{t("随便写。一句话，一个念头，或者只是一种心情。")}<br />{t("你写下的，就是这一天真正会发生的事。")}</p>
 
         <section className="styles styles-first" aria-labelledby="style-choice-title">
-          <p className="styles-label" id="style-choice-title">先选这一天的画风</p>
-          <p className="styles-note">他的样子会从这里开始长出来。</p>
+          <p className="styles-label" id="style-choice-title">{t("先选这一天的画风")}</p>
+          <p className="styles-note">{t("他的样子会从这里开始长出来。")}</p>
           <div className="style-row">
             {STYLE_ORDER.map((key) => (
               <button
@@ -105,7 +99,7 @@ export function Intake({
                 disabled={busy}
                 onClick={() => onStyle(key)}
               >
-                <span className="style-name">{STYLES[key].label}</span>
+                <span className="style-name">{t(STYLES[key].label)}</span>
               </button>
             ))}
           </div>
@@ -136,13 +130,13 @@ export function Intake({
             </span>
           )}
           <span className="him-body">
-            <span className="him-label">{him ? "他是" : styleChosen ? "还没有他" : "第一步还没完成"}</span>
+            <span className="him-label">{him ? t("他是") : styleChosen ? t("还没有他") : t("第一步还没完成")}</span>
             <span className="him-name">
-              {him ? him.name : styleChosen ? "做一个男主" : "先选画风"}
+              {him ? him.name : styleChosen ? t("做一个男主") : t("先选画风")}
             </span>
           </span>
           <span className="him-swap">
-            {him ? "换一个" : styleChosen ? "去选角" : "选择画风"}
+            {him ? t("换一个") : styleChosen ? t("去选角") : t("选择画风")}
           </span>
         </button>
 
@@ -153,10 +147,10 @@ export function Intake({
             maxLength={280}
             placeholder={
               !styleChosen
-                ? "先选这一天的画风"
+                ? t("先选这一天的画风")
                 : him
-                  ? "想赖床，让他多陪一会儿……"
-                  : "先做一个他，再写今天"
+                  ? t("想赖床，让他多陪一会儿……")
+                  : t("先做一个他，再写今天")
             }
             onChange={(event) => {
               setWish(event.target.value);
@@ -175,14 +169,14 @@ export function Intake({
 
         <div className="intake-actions">
           <span className="hint">
-            {styleChosen ? "Enter 睁眼 · Shift+Enter 换行" : "先选画风，再遇见他"}
+            {styleChosen ? t("Enter 睁眼 · Shift+Enter 换行") : t("先选画风，再遇见他")}
           </span>
           <button className="btn" onClick={send} disabled={!ready}>
-            {busy ? "睁 眼 中" : "睁 眼"}
+            {busy ? t("睁 眼 中") : t("睁 眼")}
           </button>
         </div>
 
-        {notice && <p className="notice">{notice}</p>}
+        {notice && <p className="notice">{t(notice)}</p>}
 
         <div className="readiness" aria-hidden>
           <i />

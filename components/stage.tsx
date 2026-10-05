@@ -1,5 +1,7 @@
 "use client";
 
+import { t } from "@/lib/i18n";
+
 import { useEffect, useRef, useState } from "react";
 import type { DirectorState } from "@/lib/engine";
 import { attachReactorAudio, playReactorClip, reactorMediaStream } from "@/lib/reactor";
@@ -85,6 +87,7 @@ function Choices({
 }) {
   const [text, setText] = useState("");
   const freeOnly = state.choices.length === 0;
+  const retryOnly = state.canRetryScene && freeOnly;
 
   return (
     <div className="choices">
@@ -92,7 +95,7 @@ function Choices({
       {(state.canRetryScene || !freeOnly) && (
         <div className="choice-list">
           {state.canRetryScene && (
-            <button className="card" onClick={onRetry}>重试这一幕</button>
+            <button className="card" onClick={onRetry}>{t("重试这一幕")}</button>
           )}
           {state.choices.map((choice, index) => (
             <button key={choice.label} className="card" onClick={() => onChoose(index)}>
@@ -101,12 +104,12 @@ function Choices({
           ))}
         </div>
       )}
-      {freeOnly && <p className="free-prompt">这一刻，由你来回答。</p>}
-      <div className={`typed${freeOnly ? " free-only" : ""}`}>
+      {freeOnly && !retryOnly && <p className="free-prompt">{t("这一刻，由你来回答。")}</p>}
+      {!retryOnly && <div className={`typed${freeOnly ? " free-only" : ""}`}>
         <input
           value={text}
           maxLength={280}
-          placeholder={freeOnly ? "想对他说什么，或者想怎么做？" : "或者，自己说点什么、做点什么……"}
+          placeholder={freeOnly ? t("想对他说什么，或者想怎么做？") : t("或者，自己说点什么、做点什么……")}
           onChange={(event) => setText(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === "Enter" && text.trim()) {
@@ -121,13 +124,11 @@ function Choices({
             onTyped(text);
             setText("");
           }}
-        >
-          就 这 样
-        </button>
-      </div>
+        >{t("就 这 样")}</button>
+      </div>}
       {state.notice && (
         <p className="notice" style={{ textAlign: "center", color: "#e6b7c2" }}>
-          {state.notice}
+          {t(state.notice)}
         </p>
       )}
     </div>
@@ -261,7 +262,7 @@ export function Stage({
         onReactorClipEnded({ lastFrame, strip, thumb });
       } catch (cause) {
         if (!cancelled) {
-          onReactorClipFailed(cause instanceof Error ? cause.message : "Reactor 视频播放失败。");
+          onReactorClipFailed(cause instanceof Error ? cause.message : t("Reactor 视频播放失败。"));
         }
       }
     })();
@@ -303,7 +304,7 @@ export function Stage({
           <div className="rotate-icon" aria-hidden>
             ▭
           </div>
-          <p>请横屏观看</p>
+          <p>{t("请横屏观看")}</p>
         </div>
       </div>
 
@@ -336,9 +337,9 @@ export function Stage({
 
       {state.phase === "filming" && (
         <div className="scene-progress" role="status">
-          {state.videoOff ? "正在生成下一张画面" : "正在生成下一段视频"}
-          {state.workingLabel && `：${state.workingLabel}`}
-          <span>请稍候，完成后会自动继续</span>
+          {state.videoOff ? t("正在生成下一张画面") : t("正在生成下一段视频")}
+          {state.workingLabel && `: ${t(state.workingLabel)}`}
+          <span>{t("请稍候，完成后会自动继续")}</span>
         </div>
       )}
 
@@ -357,7 +358,7 @@ export function Stage({
       <Fade show={state.phase === "filming" && state.narration === null}>
         <div className="shutter">
           <div className="shutter-card">
-            <p className="shutter-label">{state.workingLabel ?? "……"}</p>
+            <p className="shutter-label">{t(state.workingLabel ?? "……")}</p>
             <div className="breath">
               <i />
             </div>
@@ -368,11 +369,11 @@ export function Stage({
       <Fade show={state.phase === "writing"}>
         <div className="shutter" role="status">
           <div className="shutter-card">
-            <p className="shutter-label">正在整理接下来的剧情</p>
+            <p className="shutter-label">{t("正在整理接下来的剧情")}</p>
             <div className="breath">
               <i />
             </div>
-            <p className="writing-help">完成后会自动继续；超时后可重试，不会重新生成这一幕</p>
+            <p className="writing-help">{t("完成后会自动继续；超时后可重试，不会重新生成这一幕")}</p>
           </div>
         </div>
       </Fade>

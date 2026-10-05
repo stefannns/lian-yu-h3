@@ -1,5 +1,7 @@
 "use client";
 
+import { t, getLanguage } from "@/lib/i18n";
+
 import { useEffect, useRef, useState } from "react";
 import type { Character } from "@/lib/character";
 import type { StyleKey } from "@/lib/styles";
@@ -58,7 +60,7 @@ export function Creator({
     // 8MB is the route's ceiling; caught here so the player is told before
     // the upload rather than after it.
     if (input.size > 8 * 1024 * 1024) {
-      setError("图片太大了，换一张小于 8MB 的。");
+      setError(t("图片太大了，换一张小于 8MB 的。"));
       return;
     }
     const reader = new FileReader();
@@ -66,7 +68,7 @@ export function Creator({
       setUpload(typeof reader.result === "string" ? reader.result : null);
       setError(null);
     };
-    reader.onerror = () => setError("这张图读不出来。");
+    reader.onerror = () => setError(t("这张图读不出来。"));
     reader.readAsDataURL(input);
   };
 
@@ -79,8 +81,8 @@ export function Creator({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(
           mode === "upload"
-            ? { mode: "upload", name, image: upload, style }
-            : { mode: "write", name, idea, style }
+            ? { mode: "upload", name, image: upload, style, language: getLanguage() }
+            : { mode: "write", name, idea, style, language: getLanguage() }
         ),
       });
       const body = (await response.json()) as {
@@ -89,13 +91,13 @@ export function Creator({
         error?: string;
       };
       if (!response.ok || !body.him || !body.portrait || !body.him.hasArt) {
-        setError(body.error ?? "立绘没能准备好，请再试一次。");
+        setError(body.error ?? t("立绘没能准备好，请再试一次。"));
         return;
       }
       setPortraitLoaded(false);
       setMade({ him: body.him, portrait: body.portrait });
     } catch {
-      setError("没能把他做出来。");
+      setError(t("没能把他做出来。"));
     } finally {
       setBusy(false);
     }
@@ -107,10 +109,8 @@ export function Creator({
     <div className="creator">
       <div className="creator-sheet">
         <div className="creator-head">
-          <p className="intake-eyebrow" style={{ margin: 0 }}>选 角</p>
-          <button className="creator-x" onClick={onClose} disabled={busy}>
-            关闭
-          </button>
+          <p className="intake-eyebrow" style={{ margin: 0 }}>{t("选 角")}</p>
+          <button className="creator-x" onClick={onClose} disabled={busy}>{t("关闭")}</button>
         </div>
 
         {made ? (
@@ -118,17 +118,17 @@ export function Creator({
             <img
               className="made-art"
               src={made.portrait}
-              alt="他的立绘"
+              alt={t("他的立绘")}
               onLoad={() => setPortraitLoaded(true)}
               onError={() => {
                 setPortraitLoaded(false);
-                setError("立绘加载失败，请重新创建。");
+                setError(t("立绘加载失败，请重新创建。"));
               }}
             />
             <div className="made-body">
               <p className="made-name">{made.him.name}</p>
               <p className="made-desc">{made.him.descriptor}</p>
-              {error && <p className="notice">{error}</p>}
+              {error && <p className="notice">{t(error)}</p>}
               <div className="made-actions">
                 <button
                   className="btn"
@@ -138,9 +138,7 @@ export function Creator({
                     onPick(made.him);
                     onClose();
                   }}
-                >
-                  就 是 他
-                </button>
+                >{t("就 是 他")}</button>
                 <button
                   className="ghost"
                   onClick={() => {
@@ -149,9 +147,7 @@ export function Creator({
                     setError(null);
                     setUpload(null);
                   }}
-                >
-                  再做一个
-                </button>
+                >{t("再做一个")}</button>
               </div>
             </div>
           </div>
@@ -162,16 +158,12 @@ export function Creator({
                 className={mode === "write" ? "on" : ""}
                 onClick={() => setMode("write")}
                 disabled={busy}
-              >
-                写一个
-              </button>
+              >{t("写一个")}</button>
               <button
                 className={mode === "upload" ? "on" : ""}
                 onClick={() => setMode("upload")}
                 disabled={busy}
-              >
-                传一张
-              </button>
+              >{t("传一张")}</button>
             </div>
 
             {mode === "write" ? (
@@ -179,7 +171,7 @@ export function Creator({
                 className="creator-input"
                 value={idea}
                 maxLength={400}
-                placeholder="话很少的钢琴老师，戴细框眼镜，总穿深灰色的毛衣……"
+                placeholder={t("话很少的钢琴老师，戴细框眼镜，总穿深灰色的毛衣……")}
                 onChange={(event) => setIdea(event.target.value)}
                 disabled={busy}
               />
@@ -202,9 +194,7 @@ export function Creator({
                     className="drop-zone"
                     onClick={() => file.current?.click()}
                     disabled={busy}
-                  >
-                    选一张他的图
-                    <span>会按你选的画风重画一遍，脸不变</span>
+                  >{t("选一张他的图")}<span>{t("会按你选的画风重画一遍，脸不变")}</span>
                   </button>
                 )}
                 {upload && (
@@ -212,16 +202,12 @@ export function Creator({
                     className="ghost"
                     onClick={() => setUpload(null)}
                     disabled={busy}
-                  >
-                    换一张
-                  </button>
+                  >{t("换一张")}</button>
                 )}
                 {/* Short, once, and not a lecture — but an uploaded face ends
                     up in generated romantic footage, which is worth one line
                     of honesty before it happens. */}
-                <p className="drop-note">
-                  请用你自己的画、你自己的照片，或者虚构角色。别传别人的照片。
-                </p>
+                <p className="drop-note">{t("请用你自己的画、你自己的照片，或者虚构角色。别传别人的照片。")}</p>
               </div>
             )}
 
@@ -229,24 +215,24 @@ export function Creator({
               className="creator-name"
               value={name}
               maxLength={12}
-              placeholder="他叫什么？（留空就让它取）"
+              placeholder={t("他叫什么？（留空就让它取）")}
               onChange={(event) => setName(event.target.value)}
               disabled={busy}
             />
 
-            {error && <p className="notice">{error}</p>}
+            {error && <p className="notice">{t(error)}</p>}
 
             <button className="btn wide" onClick={make} disabled={!canMake}>
               {busy
-                ? "正 在 做 他"
+                ? t("正 在 做 他")
                 : mode === "upload"
-                  ? "生 成 立 绘"
-                  : "做 出 来"}
+                  ? t("生 成 立 绘")
+                  : t("做 出 来")}
             </button>
             <p className="hint" style={{ textAlign: "center", marginTop: 10 }}>
               {mode === "upload"
-                ? "会参考这张图生成当前画风的立绘，保留他的样子"
-                : "会为他生成一张立绘，确认后开始故事"}
+                ? t("会参考这张图生成当前画风的立绘，保留他的样子")
+                : t("会为他生成一张立绘，确认后开始故事")}
             </p>
           </>
         )}
