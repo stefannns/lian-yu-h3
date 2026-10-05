@@ -1,3 +1,4 @@
+import { getLanguage } from "./i18n";
 /**
  * 男主 — and the grammar every shot inherits.
  *
@@ -122,19 +123,36 @@ export function descriptorPhrase(him: Character): string {
   return text.charAt(0).toLowerCase() + text.slice(1);
 }
 
+/** Defaults only for unspecified traits when creating a new character. */
+export const DEFAULT_MALE_APPEARANCE =
+  "Only fill traits the player has not specified. Default to a strikingly handsome " +
+  "adult romantic lead with an immediately memorable, refined leading-man presence. " +
+  "Tall, long-legged silhouette; a proportionately small head relative to the shoulders, " +
+  "broad but natural shoulders, a lean defined torso, a gently tapered waist and an " +
+  "elegant neck. Balanced athletic proportions, not bulky muscles or stretched anatomy. " +
+  "A harmonious, sculpted face: balanced forehead, midface and lower-face proportions, " +
+  "well-spaced expressive eyes framed by defined brows, a defined nose bridge with a " +
+  "proportionate tip, subtly prominent cheekbones, a clean jawline and a well-proportioned " +
+  "chin. Naturally shaped lips balanced with the nose and chin. Distinct facial planes " +
+  "and depth, not a flat generic face, excessively narrow V-shaped chin or hollow cheeks. " +
+  "Keep the result believable within the selected art style rather than exaggerating " +
+  "every feature. Explicit player traits override each default individually, including " +
+  "height, build, face shape, softness, age and facial hair. A personality request alone " +
+  "does not override appearance defaults. Never apply this template to redesign an " +
+  "uploaded identity or an already established reference image.";
+
 /** His portrait prompt under one look. The cached anchor image. */
 export function portraitPrompt(him: Character, style: StyleKey): string {
   return (
-    `Character portrait of exactly one handsome adult man, unmistakably male, ` +
-    `the romantic male lead of an otome game. Refined attractive adult male ` +
-    `features, clear masculine facial structure and body proportions; never a ` +
-    `woman, girl, feminine or androgynous character, child, couple, or group. ` +
-    `Three-quarter-length portrait, standing naturally against a plain neutral ` +
-    `background, with no props or scenery: ${descriptorPhrase(him)}. His face ` +
-    `is unobstructed and clearly readable in a subtle three-quarter view, with ` +
-    `his eyes meeting the viewer. Keep every requested ` +
-    `descriptor while preserving an unmistakably adult male appearance. Warm ` +
-    `soft morning light. ${STYLES[style].still}`
+    `Character portrait of exactly one adult male romantic lead. ` +
+    `The requested appearance is authoritative: ${descriptorPhrase(him)}. ` +
+    `${style === "real" ? DEFAULT_MALE_APPEARANCE : ""} ` +
+    `Three-quarter-length portrait framed from the head to below the knees so shoulder, waist ` +
+    `and upper-leg proportions are readable, standing naturally against a plain neutral background, ` +
+    `with no props or scenery. Anatomically coherent adult proportions, no wide-angle ` +
+    `distortion or oversized head. His face is unobstructed in a subtle three-quarter ` +
+    `view, eyes meeting the viewer. Soft directional light reveals facial depth. ` +
+    `${STYLES[style].still}`
   );
 }
 
@@ -151,7 +169,7 @@ export function portraitPrompt(him: Character, style: StyleKey): string {
 export function restylePrompt(_him: Character, style: StyleKey): string {
   return (
     `The reference image is the identity reference for one adult man. Redraw ` +
-    `that same man as a handsome romantic male lead in a three-quarter-length ` +
+    `that same man in a three-quarter-length ` +
     `portrait, standing naturally against a plain neutral background. His face ` +
     `is unobstructed and clearly readable in a subtle three-quarter view, with ` +
     `his eyes meeting the viewer. Keep his exact face, hair, build, clothing, ` +
@@ -160,7 +178,9 @@ export function restylePrompt(_him: Character, style: StyleKey): string {
     `androgynous character, child, couple, or group. The finished portrait must ` +
     `show exactly one unmistakably adult man. ${STYLES[style].still} ` +
     `The reference image remains authoritative for his exact face, ethnicity, ` +
-    `and age; apply the style as rendering only and never replace his identity.`
+    `and age; apply the style as rendering only and never replace his identity. ` +
+    `Do not apply default height, long-leg proportions or sharper facial contours to this reference. ` +
+    `Preserve his actual proportions, facial softness or angularity, and facial hair.`
   );
 }
 
@@ -191,7 +211,7 @@ export const POV_LEAD =
  * finishes on the single subject and stable viewpoint.
  */
 export const POV_GUARD =
-  "The handsome adult man is the sole visible person, facing the lens in a stable cinematic composition.";
+  "The same adult man is the sole visible person in a stable composition. Preserve the reference face, hair, age, build, clothing and accessories throughout. Natural anatomy: two arms and two hands belonging to him, with five fingers on each hand when visible; no duplicated or fused limbs. Keep the unseen viewer fully off-screen.";
 
 /**
  * MiniMax camera commands, in square brackets, up to three per bracket for a
@@ -214,9 +234,9 @@ export const DEFAULT_SHOT_TAG = "[Static shot]";
  * Mandarin sentence; a shot without one receives a simple silent soundtrack.
  */
 export function soundPrompt(spokenLine: string | null): string {
-  const line = spokenLine?.replace(/[“”"]/g, "").replace(/\s+/g, " ").trim().slice(0, 28);
+  const line = spokenLine?.replace(/[“”"]/g, "").replace(/\s+/g, " ").trim();
   return line
-    ? `Audio: quiet natural ambience and soft instrumental music. The young man speaks once in a clear, warm adult male Mandarin voice, saying exactly: “${line}”`
+    ? `Audio: very quiet ambience, no music during speech. After a brief natural pause, the young man speaks once in a clear, warm adult male ${getLanguage() === "en" ? "English" : "Mandarin"} voice, saying exactly: “${line}”. All speech must be ${getLanguage() === "en" ? "English only, never Mandarin or Chinese; do not translate the quoted line" : "Mandarin Chinese only"}. Use clear, unhurried conversational diction at normal volume, with precise lip sync. Speak only the quoted words once, then close his mouth and remain silent for the rest of the clip. No ad-libbing, repetitions, mumbling, singing or other voices. Keep the same male voice across scenes; visual style does not determine speech language.`
     : "Audio: quiet natural ambience and soft instrumental music. The young man is silent.";
 }
 
@@ -259,6 +279,11 @@ export function firstFramePrompt(him: Character, style: StyleKey): string {
  * from the painted first frame, so it has to resolve INTO that composition
  * rather than arrive at it from nothing.
  */
+/** A fixed, localized greeting keeps the prologue from inventing dialogue. */
+export function openingSpokenLine(): string {
+  return getLanguage() === "en" ? "Good morning. You're awake." : "早安，你醒了。";
+}
+
 export function openingShotPrompt(him: Character): string {
   return (
     `Blurred darkness narrows the top and bottom of the frame like heavy ` +
@@ -272,7 +297,7 @@ export function openingShotPrompt(him: Character): string {
 }
 
 /** Seconds per main-story shot. */
-export const SHOT_SECONDS = 5;
+export const SHOT_SECONDS = 10;
 /** Routine process is condensed into one longer clip instead of many pauses. */
 export const AUTO_SHOT_SECONDS = 12;
 /** The waking prologue is a doorway, never its own scene. */

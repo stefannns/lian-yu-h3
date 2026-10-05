@@ -29,6 +29,7 @@ export interface StylePreset {
   still: string;
 }
 
+/** Animation defaults retain the original otome look; explicit identities take priority. */
 export const STYLES: Record<StyleKey, StylePreset> = {
   anime: {
     label: "日系动画",
@@ -46,9 +47,9 @@ export const STYLES: Record<StyleKey, StylePreset> = {
   cg3d: {
     label: "3D动画",
     prompt:
-      "Premium romantic 3D animated game cinematic: refined adult face and proportions, luminous skin, groomed hair, detailed fabric, cool shadows, warm key light, shallow depth of field.",
+      "Love and Deepspace-inspired Chinese otome 3D game cinematic: refined adult face and proportions, luminous skin, groomed hair, detailed fabric, cool shadows, warm key light, shallow depth of field.",
     still:
-      "Rendered as a polished Chinese otome 3D animated game CG. Unless the character " +
+      "Rendered as a polished Chinese otome 3D animated game CG in the visual style of Love and Deepspace (恋与深空). Unless the character " +
       "description or identity reference explicitly specifies another adult identity, the " +
       "male lead is a youthful, strikingly handsome East Asian adult in his early-to-mid " +
       "twenties, with " +
@@ -58,21 +59,12 @@ export const STYLES: Record<StyleKey, StylePreset> = {
       "subsurface-scattered skin, physically based fabric, cool ambient shadows, soft warm " +
       "key light, intimate shallow depth of field and delicate bloom. Clearly adult and " +
       "fresh-faced; no middle-aged appearance, rugged Western casting, square heavy jaw, " +
-      "deep facial lines, beard, stubble or weathered skin.",
+      "deep facial lines, beard, stubble or weathered skin by default. Explicit player appearance requests and uploaded reference identities override these casting defaults; preserve them while applying the 3D rendering style.",
   },
   real: {
     label: "写实电影",
-    prompt:
-      "Photoreal live-action cinema: attractive adult lead, natural light and skin texture, fine hair, shallow depth of field, subtle grain, muted film colour.",
-    still:
-      "A polished Chinese romantic live-action film still. Unless the character " +
-      "description or identity reference explicitly specifies another adult identity, " +
-      "cast a youthful, strikingly handsome East Asian adult male in his early-to-mid " +
-      "twenties, with refined harmonious features, expressive eyes, smooth clean-shaven " +
-      "skin, elegant modern hair and slim athletic proportions; avoid older, rugged, " +
-      "bearded or strongly Western casting. Natural window light, authentic smooth skin " +
-      "texture and fine hair detail, shallow depth of field on a fast prime lens, subtle " +
-      "film grain and a restrained cinematic colour grade.",
+    prompt: "Photoreal romantic cinema: natural skin texture, fine hair, directional soft light, shallow depth of field, subtle grain and restrained film colour. Preserve the established adult identity and physique.",
+    still: "Photoreal romantic film still. Authentic skin texture and fine hair detail, anatomically believable proportions, gentle directional light revealing the existing facial structure, restrained retouching, shallow depth of field and subtle film grain. Preserve the reference identity, adult age, ethnicity, facial shape, facial hair and physique; no plastic skin or generic face replacement.",
   },
 };
 

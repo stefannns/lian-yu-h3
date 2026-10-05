@@ -22,6 +22,7 @@
  * a run token, so a reset can never be clobbered by an in-flight shot.
  */
 
+import { LlmError } from "./llm";
 import { discardReactorClip, filmShot, resetReactorSession } from "./reactor";
 import { loadPortrait, paintFrame } from "./visuals";
 import { dress, ensureDecisionPlan, imageKey, tellNext, writeIntentShot, writeTypedShot } from "./story";
@@ -32,6 +33,7 @@ import {
   SHOT_SECONDS,
   firstFramePrompt,
   openingShotPrompt,
+  openingSpokenLine,
   type Character,
 } from "./character";
 import { DEFAULT_STYLE, STYLES, type StyleKey } from "./styles";
@@ -39,7 +41,7 @@ import type { Beat, Choice, Phase, PlannedDecision, Shot } from "./types";
 
 /** Only an explicit wish to remain in bed earns a second bedroom beat. */
 function isStayInBedWish(wish: string): boolean {
-  return /赖床|不想起(?:床)?|再睡|继续睡|被窝|床上|先不起|别起床|多躺/.test(wish);
+  return /赖床|不想起(?:床)?|再睡|继续睡|被窝|床上|先不起|别起床|多躺|\b(?:stay|staying|remain|remaining) in bed\b|\bsleep in\b|\bgo back to sleep\b/i.test(wish);
 }
 
 export interface DirectorState {
@@ -130,7 +132,7 @@ const NARRATION_DWELL_MS = 2_600;
  * a mode whose whole point is speed still feels fast — and it is also the
  * window the storyteller's read has to land in, exactly as playback is.
  */
-const STILL_DWELL_MS = 5_000;
+const STILL_DWELL_MS = 10_000;
 /** Last-resort guard if the browser transport or decoder fails to settle. */
 const SCENE_GENERATION_WATCHDOG_MS = 85_000;
 
@@ -323,8 +325,10 @@ export class Director {
       }
       if (token !== this.token) return null;
 
+      const spokenLine = openingSpokenLine();
       return await this.generate(token, {
-        prompt: dress(openingShotPrompt(him), this.style),
+        prompt: dress(openingShotPrompt(him), this.style, false, spokenLine),
+        spokenLine,
         action: null,
         kind: "opening",
         attempted: "waking up",
@@ -650,7 +654,9 @@ export class Director {
         startFrame = await paintFrame({
           prompt:
             "Image 1 is the male lead identity reference only. Create a new 16:9 first frame " +
-            "for the upcoming video. Preserve his face, hair and adult appearance. Compose " +
+            "for the upcoming video. Preserve the reference facial structure, proportions, hair, " +
+            "skin tone, adult age, build, clothing and accessories; do not redesign his face. " +
+            "Use natural anatomy and simple separated hand poses when visible. Compose " +
             "the exact new setting and first-person camera view from the scene prompt; do not " +
             "copy the portrait background or pose. Freeze the action at its clear starting " +
             "moment. Exactly one visible person, the adult male lead; the viewer is fully " +
@@ -850,7 +856,7 @@ export class Director {
       this.dwell = window.setTimeout(() => {
         if (token !== this.token || this.state.beat !== prepared.shot.beat) return;
         this.onClipEnded();
-      }, STILL_DWELL_MS);
+      }, prepared.shot.kind === "opening" ? OPENING_SHOT_SECONDS * 1000 : STILL_DWELL_MS);
     }
 
     // Reactor clips are read after live playback has supplied their real
@@ -900,6 +906,7 @@ export class Director {
     const him = this.him;
     if (!him) return;
     let beat: Beat | null = null;
+    let failureNotice = "画面已保留，剧情回复格式不符合要求。可重试文字，不会重生成这张画面。";
     try {
       beat = await tellNext({
         frames: prepared.strip,
@@ -923,7 +930,15 @@ export class Director {
         him,
       });
     } catch (cause) {
-      console.error("[read] storyteller failed unexpectedly:", cause);
+      console.error("[read] storyteller failed:", cause);
+      if (cause instanceof LlmError) {
+        const detail = `${cause.message} ${cause.detail ?? ""}`;
+        failureNotice = /429|RESOURCE_EXHAUSTED|quota/i.test(detail)
+          ? "Gemini 剧情服务限流或额度不足。画面已保留，请稍后重试文字；持续出现请检查 Gemini 配额。"
+          : /timeout|timed out|deadline|aborted/i.test(detail)
+            ? "剧情请求超时，画面已保留。稍后可重试文字，不会重生成这张画面。"
+            : "剧情服务请求失败，画面已保留。请检查文字服务配置后重试。";
+      }
     }
     if (token !== this.token || this.state.beat !== prepared.shot.beat) return;
     if (!beat) {
@@ -933,7 +948,7 @@ export class Director {
       this.pendingChoices = [];
       this.set({
         phase: "choosing", choices: [], workingLabel: null, canRetryScene: true,
-        notice: "画面已生成，剧情暂时没写好。点重试这一幕即可继续。",
+        notice: failureNotice,
       });
       return;
     }
@@ -941,13 +956,8 @@ export class Director {
     this.memory = beat.memory || this.memory;
     this.scene = beat.scene || this.scene;
     this.pendingBeat = beat;
-    // A still has no motion to finish: offer its choices as soon as ready.
-    // Only the brief waking prologue keeps its five-second dwell.
-    if (prepared.shot.still && prepared.shot.kind !== "opening") {
-      if (this.dwell !== null) window.clearTimeout(this.dwell);
-      this.dwell = null;
-      this.clipEnded = true;
-    }
+    // Keep the minimum viewing time even when narration finishes quickly.
+    // The dwell callback and the reader each apply only once the other is ready.
     if (this.clipEnded) void this.applyBeat(token, beat);
   }
 

@@ -66,7 +66,9 @@ async function generateGeminiWithRetry({
   parts,
   generationConfig,
   timeoutMs = 30_000,
-}: GeminiRequest): Promise<Response> {
+  deadline,
+}: GeminiRequest & { deadline: number }): Promise<Response> {
+  if (Date.now() >= deadline) throw new GeminiTransportError("Gemini request deadline exceeded while queued.");
   const project = process.env.GOOGLE_CLOUD_PROJECT?.trim();
   const location = process.env.GOOGLE_CLOUD_LOCATION?.trim() || "us-central1";
   const apiKey = process.env.GEMINI_API_KEY?.trim();
@@ -112,11 +114,13 @@ async function generateGeminiWithRetry({
   };
 
   for (let attempt = 1; attempt <= 3; attempt++) {
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) throw new GeminiTransportError("Gemini request deadline exceeded.");
     const response = await fetch(url, {
       method: "POST",
       headers,
       body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(timeoutMs),
+      signal: AbortSignal.timeout(remainingMs),
       cache: "no-store",
     });
     const transient = response.status === 429 || response.status >= 500;
@@ -134,6 +138,14 @@ async function generateGeminiWithRetry({
       waitHint,
       baseDelay * 2 ** (attempt - 1) + Math.floor(Math.random() * 2_000)
     );
+    // Do not outlive the caller while sleeping or launch a doomed retry.
+    if (delay + 5_000 >= deadline - Date.now()) {
+      return new Response(detail, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: response.headers,
+      });
+    }
     console.warn("[gemini] retrying transient failure", {
       status: response.status,
       model,
@@ -152,7 +164,8 @@ async function generateGeminiWithRetry({
 let geminiQueue: Promise<void> = Promise.resolve();
 
 export function generateGemini(request: GeminiRequest): Promise<Response> {
-  const result = geminiQueue.then(() => generateGeminiWithRetry(request));
+  const deadline = Date.now() + (request.timeoutMs ?? 30_000);
+  const result = geminiQueue.then(() => generateGeminiWithRetry({ ...request, deadline }));
   geminiQueue = result.then(() => undefined, () => undefined);
   return result;
 }
