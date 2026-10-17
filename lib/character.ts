@@ -233,10 +233,15 @@ export const DEFAULT_SHOT_TAG = "[Static shot]";
  * FastH3 generates picture and sound together. Give it the exact LLM-written
  * Mandarin sentence; a shot without one receives a simple silent soundtrack.
  */
-export function soundPrompt(spokenLine: string | null): string {
+export function soundPrompt(spokenLine: string | null, temperament = ""): string {
+  // New profiles provide a compact Voice clause; legacy profiles remain supported.
+  const voice = (/Voice:\s*([^\n]*?)(?=;?\s*(?:Actions|Reaction):|$)/i.exec(temperament)?.[1] ?? temperament)
+    .replace(/\[personality:(?:reserved|playful)\]/g, "")
+    .replace(/[\r\n]+/g, " ").trim().slice(0, 180);
+  const delivery = voice ? `Delivery: ${voice}. Respectful romantic interest, no mocking or pressure.` : "Delivery: sincere and considerate; follow the emotional tone of the scripted words.";
   const line = spokenLine?.replace(/[“”"]/g, "").replace(/\s+/g, " ").trim();
   return line
-    ? `Audio: very quiet ambience, no music during speech. After a brief natural pause, the young man speaks once in a clear, warm adult male ${getLanguage() === "en" ? "English" : "Mandarin"} voice, saying exactly: “${line}”. All speech must be ${getLanguage() === "en" ? "English only, never Mandarin or Chinese; do not translate the quoted line" : "Mandarin Chinese only"}. Use clear, unhurried conversational diction at normal volume, with precise lip sync. Speak only the quoted words once, then close his mouth and remain silent for the rest of the clip. No ad-libbing, repetitions, mumbling, singing or other voices. Keep the same male voice across scenes; visual style does not determine speech language.`
+    ? `Audio: natural location ambience throughout, soft music below the voice. The young man speaks in a clear adult male ${getLanguage() === "en" ? "English" : "Mandarin"} voice, saying exactly: “${line}”. All speech must be ${getLanguage() === "en" ? "English only, never Mandarin or Chinese; do not translate the quoted line" : "Mandarin Chinese only"}. Use clear, unhurried conversational diction at normal volume, with precise lip sync. Perform the entire quoted dialogue in order, with natural pauses between sentences. ${delivery} Every spoken word must come from this script. Keep ambience audible between lines. No invented syllables, extra dialogue, repetitions, mumbling, singing or other voices. Keep the same male voice across scenes; visual style does not determine speech language.`
     : "Audio: quiet natural ambience and soft instrumental music. The young man is silent.";
 }
 

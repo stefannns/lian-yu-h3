@@ -99,12 +99,12 @@ export function t(text: string): string {
 export function storyLanguageRules(system: string): string {
   if (language !== "en") return system;
   const localized = system
-    .replace(/one natural Mandarin sentence of 4-14 Chinese characters/g, "one natural English sentence of 3-10 words")
+    .replace(/one or two natural Mandarin sentences totaling 4-28 Chinese characters/g, "one or two natural English sentences totaling 3-20 words")
     .replace(/中文，两到三个字[^\n]*/g, "a short natural English given name, not Chinese pinyin.")
     .replace(/中文，四到十八个字/g, "English, 2-8 words")
     .replace(/中文，四到十二个字/g, "English, 2-8 words")
     .replace(/中文台词/g, "English dialogue")
     .replace(/中文/g, "English");
   return localized + `
-OUTPUT LANGUAGE OVERRIDE: The selected game language is English. This overrides every Chinese/Mandarin language or character-count requirement above, even if the player writes in another language. All player-visible narration, dialogue, labels and questions must be natural English. Preserve names and explicit facts; never translate the player's intent into a different action. Keep narration to 1-2 short sentences, labels to 2-8 words, spokenLine to one sentence of 3-10 English words (null for still mode). Visual prompts, memory, JSON keys and enum values remain as specified. A free interaction MUST include a clear open question in line.`;
+OUTPUT LANGUAGE OVERRIDE: The selected game language is English. This overrides every Chinese/Mandarin language or character-count requirement above, even if the player writes in another language. All player-visible narration, dialogue, labels and questions must be natural English. Preserve names and explicit facts; never translate the player's intent into a different action. Keep narration to 1-2 short sentences, labels to 2-8 words, spokenLine to one or two sentences totaling 3-20 English words (null for still mode). Visual prompts, memory, JSON keys and enum values remain as specified. A free interaction MUST include a clear open question in line.`;
 }

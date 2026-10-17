@@ -327,7 +327,7 @@ export class Director {
 
       const spokenLine = openingSpokenLine();
       return await this.generate(token, {
-        prompt: dress(openingShotPrompt(him), this.style, false, spokenLine),
+        prompt: dress(openingShotPrompt(him), this.style, false, spokenLine, him.temperament),
         spokenLine,
         action: null,
         kind: "opening",
