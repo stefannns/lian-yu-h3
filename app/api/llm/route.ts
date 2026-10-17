@@ -21,7 +21,8 @@ const MIN_TIMEOUT_MS = 5_000;
 const MAX_TIMEOUT_MS = 45_000;
 
 const MAX_PROMPT_CHARS = 24_000;
-const MAX_SYSTEM_CHARS = 16_000;
+// Preserve the complete story contract, including the final language rules.
+const MAX_SYSTEM_CHARS = 32_000;
 const MAX_OUTPUT_TOKENS = 2_000;
 const MAX_IMAGES = 4;
 /** ~1.4MB of base64, comfortably above a 768px JPEG frame. */
@@ -63,7 +64,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid prompt." }, { status: 400 });
   }
   const system =
-    typeof body.system === "string" ? body.system.slice(0, MAX_SYSTEM_CHARS) : "";
+    typeof body.system === "string" ? body.system : "";
+  if (system.length > MAX_SYSTEM_CHARS) {
+    return NextResponse.json(
+      { error: "System instructions exceed the length limit; shorten them before retrying." },
+      { status: 400 }
+    );
+  }
 
   const parts: GeminiPart[] = [];
   if (Array.isArray(body.images)) {
