@@ -1,3 +1,4 @@
+import { detectPersonality, personalityHint, retainPersonality } from "@/lib/personality";
 import { NextRequest, NextResponse } from "next/server";
 import { mkdir, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
@@ -56,9 +57,9 @@ Return ONLY JSON in exactly this shape:
 
 - name: 中文，两到三个字，好听，像小说里的男主。没有姓氏也可以。
 - descriptor: ENGLISH, one phrase, appearance ONLY, written verbatim into every shot prompt of the run. Write it as a NOUN PHRASE that can sit inside a sentence — start with the build or a feature, never with "A young man..." (the sentence already says that), and never end with an art note like "with beige as the dominant colour" or "dominated by a warm palette", which describes the whole picture rather than him. Good: "tall and lean, with messy dark hair, in an oversized beige cable-knit sweater". Concrete and visual: build, hair, and the one or two garments that make his silhouette. Name ONE dominant colour. Include a compact facial-structure phrase and preserve any explicit facial traits. Use only the selected style's appearance defaults for unspecified traits. Keep build and proportion cues concise so they persist in later shots; the generated reference image carries the exact identity. Preserve an adult age or ethnicity when the player's idea explicitly specifies one; otherwise do not invent either. No personality, no backstory, no camera or lighting direction.
-- temperament: ENGLISH, one or two sentences, how he behaves toward her. This steers the writing only, never the picture. Warm, specific, and playable — say what he DOES, not what he is like.
+- temperament: ENGLISH, at most 600 characters. Preserve the player's explicit personality rather than replacing it with generic tenderness. Use compact labeled clauses: Voice: speaking rhythm, directness and humour; Actions: initiative and how he shows care; Reaction: response to teasing, disagreement or refusal. Translate traits into observable behaviour. Reserved means concise sincere words and practical care, never cold punishment. Playful means situational, self-directed teasing and invitations, never humiliation. These are examples, not mandatory categories. If unspecified, choose a coherent modest default; do not infer personality from appearance. Treat the player as a valued romantic partner or interest at the established relationship stage.
 
-Keep him tender and age-appropriate for a warm romance. Nothing explicit.`;
+All personalities must be polite, respectful and caring toward the player. No insults, humiliation, threats, coercion, manipulation, punitive silence or intentional physical or emotional harm. Accept refusal immediately without guilt or pressure. Romantic interest never implies consent or ownership. Nothing explicit.`;
 
 const READ_SYSTEM = `You are looking at a picture of a 男主 (male love interest) for a first-person 乙女游戏. Describe HIM as he appears in this image.
 
@@ -67,7 +68,7 @@ Return ONLY JSON in exactly this shape:
 
 - name: 中文，两到三个字，好听，配得上画面里这个人。
 - descriptor: ENGLISH, one phrase, appearance ONLY, describing THE PERSON IN THIS IMAGE. Write it as a NOUN PHRASE that can sit inside a sentence — start with the build or a feature, never with "A young man..." (the sentence already says that), and never end with an art note like "with beige as the dominant colour" or "dominated by a warm palette", which describes the whole picture rather than him. Good: "tall and lean, with messy dark hair, in an oversized beige cable-knit sweater". Namely — build, hair, and the garments that make his silhouette, naming ONE dominant colour. This is written verbatim into every shot prompt, so be concrete and visual. Do not describe his face in fine detail; the image itself carries the face. No personality, no backstory, no lighting or camera direction, no mention of the photograph or the art.
-- temperament: ENGLISH, one or two sentences, a warm personality that suits how he looks. Say what he DOES toward her.
+- temperament: ENGLISH, concise labeled clauses Voice:, Actions:, Reaction:. Personality cannot be known from an image: use a modest respectful romantic default, not a claim about the pictured person. Speak sincerely, offer practical care, and accept refusal without pressure. No humiliation, threats, manipulation or intentional harm.
 
 Describe only what is in the image. Keep it tender and age-appropriate. Nothing explicit.`;
 
@@ -147,6 +148,7 @@ export async function POST(request: NextRequest) {
     ? "\nLANGUAGE OVERRIDE: Generate a short natural English name unless the player supplies a name. Descriptor and temperament remain English."
     : "";
   const givenName = str(body.name, MAX_NAME_CHARS);
+  const personalityKeys = mode === "write" ? detectPersonality(str(body.idea, MAX_IDEA_CHARS)) : [];
   // The look he is first painted in. Every other look is later edited from
   // this same picture, so this one call decides what he actually looks like.
   const asked = body.style;
@@ -181,7 +183,7 @@ export async function POST(request: NextRequest) {
         // The idea is untrusted player text, so it is handed over as data
         // rather than pasted into the instructions.
         system: localizeName(WRITE_SYSTEM) + "\n" + (style === "real" ? DEFAULT_MALE_APPEARANCE : "Preserve the player appearance requests. Do not add sculpted facial planes, prominent cheekbones, a heavy jaw, broad shoulders or small-head proportions by default; the selected animation preset supplies the visual design.") + languageRule,
-        prompt: JSON.stringify({ player_idea: idea }),
+        prompt: JSON.stringify({ player_idea: idea, personality_guidance: personalityHint(personalityKeys) }),
       });
       const descriptor = str(written.descriptor, 300);
       if (!descriptor) throw new Error("no descriptor written");
@@ -204,7 +206,7 @@ export async function POST(request: NextRequest) {
       // A name the player typed always wins over one the model invented.
       name: givenName || (english && /[\u3400-\u9fff]/.test(str(written.name, MAX_NAME_CHARS)) ? "Ethan" : str(written.name, MAX_NAME_CHARS)) || (english ? "Ethan" : "他"),
       descriptor: str(written.descriptor, 300),
-      temperament: str(written.temperament, 400),
+      temperament: retainPersonality(str(written.temperament, 600), personalityKeys),
       fromUpload: mode === "upload",
       hasArt: true,
     };
